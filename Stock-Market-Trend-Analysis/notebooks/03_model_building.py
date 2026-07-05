@@ -1203,7 +1203,7 @@ audit = {
     "garch_variance_evaluated": all("QLIKE" in d for d in garch_info.values()),
     "diracc_significance_tested": all("DirAcc_p" in s for s in val_scores),
     "diebold_mariano_done": np.isfinite(dm_arima[1]) and np.isfinite(dm_ho[1]),
-    "lstm_attention_runs_smoke": (MODELS / "lstm_attention_smoke.keras").exists(),
+    "lstm_attention_trained": (MODELS / ("lstm_attention_final.keras" if FULL_TRAIN else "lstm_attention_smoke.keras")).exists(),
     "lightgbm_trained": (MODELS / "lgbm_global.txt").exists() and (MODELS / "lgbm_global_final.txt").exists(),
     "feature_ablation_done": (MODELS / "feature_ablation.csv").exists() and len(FEAT_MODEL) >= len(MODEL_FEATURES),
     "lgb_optuna_tuned": (MODELS / "lgbm_best_params.json").exists() and (MODELS / "lgbm_optuna_study.pkl").exists(),
@@ -1224,4 +1224,7 @@ for k, v in audit.items():
     print(f"  [{'PASS' if v else 'FAIL'}] {k}")
 assert all(audit.values()), "M3 self-audit failed!"
 print(f"\nAll {len(audit)} M3 self-audit checks passed.")
-print("NOTE: LSTM val/holdout numbers are SMOKE-TEST only — run the Colab config (sec 5) for the real LSTM result.")
+if FULL_TRAIN:
+    print("NOTE: FULL_TRAIN run -- LSTM val/holdout numbers are the REAL 20-epoch result (lstm_attention_final.keras).")
+else:
+    print("NOTE: LSTM val/holdout numbers are SMOKE-TEST only -- run the Colab GPU config (sec 5) for the real LSTM result.")

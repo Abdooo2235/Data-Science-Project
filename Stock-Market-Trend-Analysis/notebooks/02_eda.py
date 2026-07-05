@@ -87,12 +87,16 @@ TICKERS = ["^GSPC", "AAPL", "AMZN", "NVDA"]
 # Load ONLY train_fe. We log every parquet path opened so the self-audit can PROVE the val/holdout
 # files were never touched (a real sealing check, not a vacuous one).
 _OPENED_PARQUET = []
-_orig_read_parquet = pd.read_parquet
+# Stash the TRUE original on the module the first time only. Re-running this cell must NOT capture the
+# already-patched wrapper as "original" (that self-wraps -> infinite recursion). The wrapper always calls
+# the stashed true function, so re-running is safe.
+if not hasattr(pd, "_eda_true_read_parquet"):
+    pd._eda_true_read_parquet = pd.read_parquet
 
 
 def read_parquet_logged(path, *a, **k):
     _OPENED_PARQUET.append(str(path))
-    return _orig_read_parquet(path, *a, **k)
+    return pd._eda_true_read_parquet(path, *a, **k)
 
 
 pd.read_parquet = read_parquet_logged

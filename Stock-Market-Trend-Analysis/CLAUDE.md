@@ -150,8 +150,10 @@ Log. Keep this discipline for M4.
   return scale (GARCH+LSTM, honest shrinkage framing). No model beats naive on RMSE — EMH ceiling intact; the
   54.2% directional figure is the shared lag-1 microstructure, cost-erased, not new skill. 22/22 structural
   self-audit checks pass.
-- **Attention-LSTM trained** (20-epoch, CPU-verified; `FULL_TRAIN` auto-runs Optuna + full train on Colab GPU —
-  guide in `reports/COLAB_TRAINING_GUIDE.md`). Holdout DirAcc 0.542 (p=0.005), RMSE worse than naive — weak/uneconomic.
+- **Attention-LSTM trained on Colab GPU (2026-07-06)** via `FULL_TRAIN` (Optuna picked units=64/2-layer/dropout
+  0.26; guide in `reports/COLAB_TRAINING_GUIDE.md`). **Real holdout DirAcc 0.491 (p=0.574 — coin flip); the
+  earlier 0.542 did NOT reproduce** → the LSTM edge was run-dependent noise. Ensemble 0.512 (coin flip). Only
+  GJR-GARCH (0.543) and tuned LightGBM (0.542), both p=0.002, keep a reproducible edge. EMH ceiling reinforced.
 - **Outstanding**: M4 (Evaluation & Presentation) not started. See `Plans/progress_checklist.md` for the tracker.
 
 ## How to run (local)
