@@ -2,6 +2,17 @@
 
 Architecture reference for this repo. Read before editing. Keep this file in sync when structure changes.
 
+## Coding mode: ponytail, always on
+
+Default to ponytail mode (full intensity) for every coding task in this repo — writing,
+adding, fixing, refactoring, reviewing code, or choosing a library. Climb the ladder before
+writing anything: does it need to exist (YAGNI) -> already in this codebase -> stdlib ->
+native feature -> already-installed dependency -> one line -> only then minimal new code.
+No unrequested abstractions, no speculative scaffolding. Mark deliberate shortcuts with a
+`ponytail:` comment naming the ceiling and upgrade trigger. Never simplify away input
+validation, error handling that prevents data loss, or leakage-prevention checks (this repo's
+correctness bar — see Leakage-Prevention Invariants below).
+
 ## What this project is
 
 Educational data-science capstone: **forecast the NEXT-day log return** for four tickers
