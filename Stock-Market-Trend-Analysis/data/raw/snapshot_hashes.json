@@ -1,0 +1,38 @@
+{
+  "_window": {
+    "start": "2016-05-23",
+    "end_exclusive": "2026-05-21"
+  },
+  "^GSPC": {
+    "sha256": "c2593c75800e893497f13fe36f0496a19f2454729198a38cfa4c5cb5b508b818",
+    "rows": 2513
+  },
+  "AAPL": {
+    "sha256": "41ad3c38736f2d9e56c596ba892e5d4fa8b82aa92ce10b5763de11e5d2da9441",
+    "rows": 2513
+  },
+  "AMZN": {
+    "sha256": "3f105d93c828309a81d7847a2e2a01758e472214b44d26623d6939cbf2fc93c8",
+    "rows": 2513
+  },
+  "NVDA": {
+    "sha256": "e23adade40b4cd83ea9974f6f38c18460f706b0051cfe498c6b5b0670ba18291",
+    "rows": 2513
+  },
+  "^VIX": {
+    "sha256": "4622f9bd9eb65938a9223f4336be89c980148f9d54beb861a67650213f89fa0c",
+    "rows": 2608
+  },
+  "^TNX": {
+    "sha256": "360210d0bec9523c042551fbf3a639a0e3a42e7b46f58b5c6daec802a089cf40",
+    "rows": 2608
+  },
+  "^IRX": {
+    "sha256": "62b9965c4db5203481be7cfa8b2b7859e1c4bbab1eda2ec43585b6c44f6fdc21",
+    "rows": 2608
+  },
+  "DX-Y.NYB": {
+    "sha256": "9b27c1cb076a8485fa0aef423d4d9c3a3df808ee7d70b76874706f2e39240fe5",
+    "rows": 3037
+  }
+}
