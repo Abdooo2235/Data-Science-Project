@@ -86,17 +86,20 @@ TICKERS = ["^GSPC", "AAPL", "AMZN", "NVDA"]
 
 # Load ONLY train_fe. We log every parquet path opened so the self-audit can PROVE the val/holdout
 # files were never touched (a real sealing check, not a vacuous one).
+#
+# The wrapper calls pandas' UNDERLYING implementation `pandas.io.parquet.read_parquet`, which our top-level
+# `pd.read_parquet = ...` rebind never touches. That makes this recursion-proof under ANY kernel state — even
+# if a previous cell run already replaced `pd.read_parquet` with a wrapper. (Capturing `pd.read_parquet` itself
+# as "the original" is the bug that self-recurses on a re-run; calling the never-patched submodule func can't.)
+import pandas.io.parquet as _pqmod
+
 _OPENED_PARQUET = []
-# Stash the TRUE original on the module the first time only. Re-running this cell must NOT capture the
-# already-patched wrapper as "original" (that self-wraps -> infinite recursion). The wrapper always calls
-# the stashed true function, so re-running is safe.
-if not hasattr(pd, "_eda_true_read_parquet"):
-    pd._eda_true_read_parquet = pd.read_parquet
+_REAL_READ_PARQUET = _pqmod.read_parquet   # the real reader; never rebound by patching pd.read_parquet
 
 
 def read_parquet_logged(path, *a, **k):
     _OPENED_PARQUET.append(str(path))
-    return pd._eda_true_read_parquet(path, *a, **k)
+    return _REAL_READ_PARQUET(path, *a, **k)
 
 
 pd.read_parquet = read_parquet_logged
