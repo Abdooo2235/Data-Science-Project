@@ -8,6 +8,7 @@ seaborn==0.13.2
 statsmodels==0.14.4
 arch==7.2.0
 lightgbm==4.5.0
+optuna==4.1.0
 yfinance==0.2.50
 # M3 deep model: Colab ships GPU tensorflow; locally use the CPU build (tensorflow-cpu==2.18.0).
 tensorflow-cpu==2.18.0

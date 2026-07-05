@@ -623,13 +623,15 @@ def make_price_and_return_features(df: pd.DataFrame) -> pd.DataFrame:
     )
     df["parkinson_vol_21"] = park
 
-    # RSI(14) on Adj Close
+    # RSI(14) on Adj Close — TRUE Wilder smoothing (EMA alpha=1/n), then shift(1) so the window is strictly
+    # past-only (consistent with every other rolling feature). Previously a simple rolling mean mislabeled
+    # "Wilder"; fixed in the M3.5 hardening pass.
     def _rsi(close: pd.Series, n: int = 14) -> pd.Series:
         delta = close.diff()
-        gain = delta.clip(lower=0).rolling(n).mean()
-        loss = (-delta.clip(upper=0)).rolling(n).mean()
+        gain = delta.clip(lower=0).ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
+        loss = (-delta.clip(upper=0)).ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
         rs = gain / loss.replace(0, np.nan)
-        return 100 - 100 / (1 + rs)
+        return (100 - 100 / (1 + rs)).shift(1)
 
     df["rsi_14"] = df.groupby("ticker")["Adj Close"].transform(lambda s: _rsi(s, 14))
 
@@ -640,6 +642,32 @@ def make_price_and_return_features(df: pd.DataFrame) -> pd.DataFrame:
         return (v - m) / sd
 
     df["volume_z_20"] = df.groupby("ticker")["Volume"].transform(lambda s: _vol_z(s, 20))
+
+    # --- CANDIDATE variance-axis features (M3.5 ablation pool) ------------------------------------------
+    # Persisted in the parquet but NOT auto-added to MODEL_FEATURES: a train-only ablation in notebook 03
+    # decides which survive (MI vs noise floor + walk-forward permutation importance). All use the same
+    # shift(1)-before-rolling + per-ticker discipline as the features above, so they are leakage-safe as X.
+    # Rationale: M2 showed the predictable signal is VARIANCE (parkinson_vol MI 0.16 vs 0.002 floor), not
+    # direction (|r|<0.075). These sharpen the variance/higher-moment axis; direction indicators were rejected.
+    def _semidev(s: pd.Series, n: int) -> pd.Series:
+        """Downside vol proxy: rolling std of the downside-clipped series (positives set to 0)."""
+        return s.where(s < 0, 0.0).shift(1).rolling(n).std()
+
+    df["semi_vol_21"] = g_logret.transform(lambda s: _semidev(s, 21))
+    df["semi_vol_63"] = g_logret.transform(lambda s: _semidev(s, 63))
+    # Rolling higher moments (time-varying asymmetry / tail-thickness) — motivated by confirmed fat tails.
+    df["ret_skew_21"] = g_logret.transform(lambda s: s.shift(1).rolling(21).skew())
+    df["ret_kurt_21"] = g_logret.transform(lambda s: s.shift(1).rolling(21).kurt())
+    # Normalized ATR(14): true range includes the overnight gap terms that Parkinson (High/Low only) misses.
+    # H/L are RAW (auto_adjust=False) while Adj Close is split/dividend-adjusted; TR uses cross-day DIFFERENCES,
+    # so the two bases must be reconciled (a ratio like Parkinson's ln(H/L) is immune, but differences are not).
+    # Put H/L on the adjusted basis via adj = Adj Close / Close, then difference against the adjusted prev close.
+    adj = df["Adj Close"] / df["Close"]
+    h_adj, l_adj = df["High"] * adj, df["Low"] * adj
+    prev_c = g_close.shift(1)   # per-ticker adjusted previous close
+    tr = np.maximum(h_adj - l_adj,
+                    np.maximum((h_adj - prev_c).abs(), (l_adj - prev_c).abs()))
+    df["atr_14"] = tr.groupby(df["ticker"]).transform(lambda s: s.shift(1).rolling(14).mean()) / df["Adj Close"]
     return df
 
 
@@ -772,7 +800,11 @@ MODEL_FEATURES = [
     "tnx_level", "tnx_change", "term_spread", "term_spread_change",
     "dxy_log_return",
 ]
+# CANDIDATE features (M3.5): persisted in the parquet, NOT in MODEL_FEATURES yet. Notebook 03 runs a
+# train-only ablation (MI vs noise floor + walk-forward permutation importance) and promotes only survivors.
+CANDIDATE_FEATURES = ["semi_vol_21", "semi_vol_63", "ret_skew_21", "ret_kurt_21", "atr_14"]
 print(f"MODEL_FEATURES: {len(MODEL_FEATURES)} columns ({len(MODEL_FEATURES) - 9} base + 9 exogenous)")
+print(f"CANDIDATE_FEATURES (ablation pool, gated into X by notebook 03): {CANDIDATE_FEATURES}")
 print("Excluded from X (non-stationary price levels):", RAW_PRICE_LEVEL)
 
 # %% [markdown]
@@ -891,6 +923,7 @@ roles = {
     "target": TARGET,
     "id_cols": ID_COLS,
     "model_features": MODEL_FEATURES,
+    "candidate_features": CANDIDATE_FEATURES,  # M3.5 ablation pool — notebook 03 promotes survivors
     "raw_price_level_excluded": RAW_PRICE_LEVEL,
     "diagnostic_cols": DIAGNOSTIC_COLS,
     "source_cols": SOURCE_COLS,
@@ -955,8 +988,14 @@ def write_feature_dictionary(df: pd.DataFrame, out_path: Path) -> None:
         "realized_vol_63": ("feature", "63d realized vol", "shift(1).rolling(63).std()", "yes"),
         "rolling_std_20": ("feature", "20d rolling std of log_return", "shift(1).rolling(20).std()", "yes"),
         "parkinson_vol_21": ("feature", "21d Parkinson range vol (High/Low)", "sqrt(mean(ln(H/L)^2)/(4ln2))", "yes"),
-        "rsi_14": ("feature", "14d RSI on Adj Close", "Wilder RSI", "yes"),
+        "rsi_14": ("feature", "14d RSI on Adj Close (true Wilder EMA, shifted 1)", "Wilder ewm(alpha=1/14).mean() gain/loss, .shift(1)", "yes"),
         "volume_z_20": ("feature", "20d volume z-score", "(V-rollmean)/rollstd", "yes"),
+        # CANDIDATE variance-axis features (M3.5 ablation pool — promoted into X only if they survive notebook 03's ablation)
+        "semi_vol_21": ("candidate", "21d downside semi-deviation (leverage asymmetry)", "std(min(logret,0)).shift(1).rolling(21)", "yes"),
+        "semi_vol_63": ("candidate", "63d downside semi-deviation", "std(min(logret,0)).shift(1).rolling(63)", "yes"),
+        "ret_skew_21": ("candidate", "21d rolling skewness of log_return", "shift(1).rolling(21).skew()", "yes"),
+        "ret_kurt_21": ("candidate", "21d rolling kurtosis of log_return", "shift(1).rolling(21).kurt()", "yes"),
+        "atr_14": ("candidate", "14d normalized ATR (true range incl. overnight gap / close)", "mean(TR).shift(1).rolling(14)/AdjC", "yes"),
         "ticker_expanding_mean": ("feature", "Expanding mean log_return, shifted 1 (past-only)", "expanding(min20).mean().shift(1)", "yes"),
         "ticker_expanding_std": ("feature", "Expanding std log_return, shifted 1", "expanding(min20).std().shift(1)", "yes"),
         # raw exogenous levels (kept for reference; engineered versions are the model features)

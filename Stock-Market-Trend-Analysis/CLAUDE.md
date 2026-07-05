@@ -14,14 +14,19 @@ Milestone-driven (M1 data → M2 EDA → M3 models → M4 evaluation), each spec
 
 ## Knowledge graph (RAG — query before grepping)
 
-A graphify knowledge graph indexes this whole repo (code + docs + reports + figures) as
-155 nodes / 213 edges / 14 communities. **When locating where something lives, how concepts
-connect, or which files touch a topic, query the graph first — it is faster than blind grep.**
+A graphify knowledge graph indexes this repo. After the M3.5 pass it was refreshed via `graphify update .`
+(deterministic AST re-extraction, no LLM) to **292 nodes / 293 edges / 53 communities** — the current code layer
+including the new M3.5 functions (`date_folds`, the ablation harness, the Optuna objective, etc.). This refresh is
+**code-only**; the earlier curated graph that also carried semantic doc concepts (106 nodes / 9 labeled
+communities) is backed up under `graphify-out/2026-07-05/`. To re-add the semantic doc/report layer and re-label
+communities, run `/graphify . --update` (dispatches extraction subagents). **When locating where something lives,
+how concepts connect, or which files touch a topic, query the graph first — faster than grep.**
 
 - Query engine (RAG): `graphify query "<question>"` — BFS traversal, cites `source_location`.
 - Shortest path between two things: `graphify path "make_features" "target_log_return"`.
 - Explain one node: `graphify explain "LightGBM"`.
 - Rebuild after code/doc changes: `/graphify . --update` (re-extracts only changed files).
+  Manual only — no auto-rebuild hook installed.
 
 Artifacts (in the **parent** dir, `../graphify-out/` relative to this file):
 - `../graphify-out/graph.json` — machine-queryable graph (what the query commands read).
@@ -77,13 +82,24 @@ Colab; a bootstrap markdown covers clone/upload + `pip install -r requirements.t
 - **ARIMA** per ticker — order by **BIC** (parsimonious: (1,0,0)/(0,0,1)); one-step-ahead (append-then-forecast).
 - **GJR-GARCH(1,1) Student-t** per ticker (`arch`, `o=1` asymmetry for M2's leverage effect); out-of-sample via
   `last_obs`. Evaluated as a variance model (QLIKE, Mincer-Zarnowitz), not point-RMSE. (NB: GJR, not EGARCH.)
-- **LightGBM** — tabular, 39 features + `ticker` categorical; fully local; deliberately un-tuned (shows overfit).
-- **Global LSTM + attention** — Keras functional, 60-day sequences, ticker one-hot. `FULL_TRAIN` flag
-  auto-enables the real 20-epoch run on a Colab GPU (`lstm_attention_final.keras` + `lstm_val_metrics.json`;
-  fills holdout `y_pred_lstm`); on local CPU it's a 2-epoch smoke-test. See `reports/COLAB_TRAINING_GUIDE.md`.
-- **Ensemble** — z-scored directional blend of LightGBM + LSTM (RMSE n/a by design; directional only).
+- **LightGBM** — tabular, `ticker` categorical. TWO variants kept side by side: a **baseline** (39 features,
+  fixed 400 trees, un-tuned — the overfit reference) and a **tuned** model (`FEAT_MODEL` = 39 + ablation
+  survivors, Optuna 60-trial search on the purged walk-forward CV; §5b-tune). The tuned model is PROMOTED only
+  if it beats the baseline on the sealed holdout (§8 guardrail). Both fully local.
+- **Global LSTM + attention** — Keras functional, 60-day sequences on `FEAT_MODEL`, ticker one-hot. `FULL_TRAIN`
+  flag auto-enables a small Optuna search (15 trials, inner purged split) + the real 20-epoch run on a Colab GPU
+  (`lstm_attention_final.keras`, `lstm_best_params.json`, `lstm_val_metrics.json`; fills holdout `y_pred_lstm`);
+  on local CPU it's a 2-epoch smoke-test. `build_lstm` supports `bidirectional`. See `COLAB_TRAINING_GUIDE.md`.
+- **Ensemble** — equal-weight, **return-scale** average of the two holdout survivors (GJR-GARCH-mean +
+  attention-LSTM); fully scorable (RMSE/MAE/DM), feeds the cost backtest. Old LGB+LSTM z-blend kept only as the
+  documented *rejected* baseline.
+- **Feature ablation (§1b)** — train-only harness (MI vs shuffle floor AND walk-forward permutation importance)
+  decides which `CANDIDATE_FEATURES` enter `FEAT_MODEL`. `date_folds` = 5 purged expanding folds (date-split,
+  1-day embargo), reused as the Optuna CV objective.
 
 Metrics: RMSE, MAE, **directional accuracy** + significance (binomial vs 0.50, **Diebold-Mariano** vs naive).
+Tuning/feature selection use a **leakage-free purged walk-forward CV on train only**; val/holdout never read by
+any selection step (structural no-peek). Promote/revert decided once on the sealed holdout, both recorded.
 
 ## Leakage-prevention invariants (NEVER break — the whole project rests on these)
 
@@ -124,9 +140,18 @@ Log. Keep this discipline for M4.
 
 ## Status
 
-- M1 (data + 9 exogenous features), M2 (EDA), M3 (models + enhancement pass) — **done, multi-agent audited**.
-- **Attention-LSTM trained** (20-epoch, CPU-verified; `FULL_TRAIN` auto-runs on Colab GPU — guide in
-  `reports/COLAB_TRAINING_GUIDE.md`). Holdout DirAcc 0.542 (p=0.005), RMSE worse than naive — weak/uneconomic.
+- M1 (data + 9 exogenous features), M2 (EDA), M3 (models + enhancement pass), **M3.5 hardening pass** — **done,
+  multi-agent audited**.
+- **M3.5 (2026-07-05, multi-agent audited):** fixed RSI (true Wilder) + ATR price-basis bug; train-only feature
+  ablation tested 5 variance-axis candidates and **kept 0** (all redundant with existing vol features) →
+  `FEAT_MODEL` = the 39 baseline, so baseline vs tuned is a **clean tuning-only comparison**. Optuna LightGBM
+  tuning on a purged walk-forward CV (chose 2 trees) **fixed the overfit** — tuned went from worse-than-naive
+  (0.02168) to naive-tying (0.02107), `PROMOTE`d over baseline (DM p=0.0025, significant). Ensemble rebuilt on the
+  return scale (GARCH+LSTM, honest shrinkage framing). No model beats naive on RMSE — EMH ceiling intact; the
+  54.2% directional figure is the shared lag-1 microstructure, cost-erased, not new skill. 22/22 structural
+  self-audit checks pass.
+- **Attention-LSTM trained** (20-epoch, CPU-verified; `FULL_TRAIN` auto-runs Optuna + full train on Colab GPU —
+  guide in `reports/COLAB_TRAINING_GUIDE.md`). Holdout DirAcc 0.542 (p=0.005), RMSE worse than naive — weak/uneconomic.
 - **Outstanding**: M4 (Evaluation & Presentation) not started. See `Plans/progress_checklist.md` for the tracker.
 
 ## How to run (local)

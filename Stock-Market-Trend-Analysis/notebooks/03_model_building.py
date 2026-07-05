@@ -60,8 +60,8 @@ if IN_COLAB:
     if _req.exists():
         subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", str(_req)], check=False)
 
-# Ensure the two M3-specific libraries are present (local or Colab).
-for pkg, mod in [("arch", "arch"), ("tensorflow", "tensorflow")]:
+# Ensure the M3-specific libraries are present (local or Colab).
+for pkg, mod in [("arch", "arch"), ("tensorflow", "tensorflow"), ("optuna==4.1.0", "optuna")]:
     try:
         __import__(mod)
     except ImportError:
@@ -103,6 +103,7 @@ MODELS.mkdir(parents=True, exist_ok=True)
 
 roles = json.loads((PROC / "feature_roles.json").read_text())
 MODEL_FEATURES = roles["model_features"]
+CANDIDATE_FEATURES = roles.get("candidate_features", [])  # M3.5 ablation pool (gated into X by section 1b)
 TARGET = roles["target"]
 TICKERS = ["^GSPC", "AAPL", "AMZN", "NVDA"]
 
@@ -187,14 +188,133 @@ def score(name, y_true, y_pred):
 
 
 def clean_xy(df):
-    """Per-split frame -> (rows with non-NaN target & features), sorted by ticker/date."""
-    d = df.dropna(subset=[TARGET] + MODEL_FEATURES).sort_values(["ticker", "date"]).reset_index(drop=True)
-    return d
+    """Per-split frame -> (rows with non-NaN target & features), sorted by ticker/date.
+    Drops over MODEL_FEATURES + CANDIDATE_FEATURES so the ablation pool is fully populated; because the
+    longest candidate warm-up (semi_vol_63) is <= the existing realized_vol_63 warm-up, this loses 0 extra rows.
+    The assert makes that claim LOUD — if a candidate ever NaNs outside the MF warm-up, fail instead of silently
+    dropping an is_warmup=0 row the nan-report never counted."""
+    base = df.dropna(subset=[TARGET] + MODEL_FEATURES)
+    d = df.dropna(subset=[TARGET] + MODEL_FEATURES + CANDIDATE_FEATURES)
+    assert len(base) == len(d), f"candidate warm-up dropped {len(base) - len(d)} extra rows (silent drop!)"
+    return d.sort_values(["ticker", "date"]).reset_index(drop=True)
 
 
 train_c = clean_xy(train)
 val_c = clean_xy(val)
 print("after dropna -> train:", train_c.shape, "val:", val_c.shape)
+
+# %% [markdown]
+# ## 1b. Feature ablation — do the candidate variance-axis features earn a place in X?
+#
+# M2 established the predictable structure is **variance** (`parkinson_vol_21` MI 0.16 vs a 0.002 noise floor),
+# not **direction** (Pearson |r| < 0.075 for every feature). So in the M3.5 hardening pass we added a small pool
+# of variance-axis CANDIDATE features (`semi_vol_21/63`, `ret_skew_21`, `ret_kurt_21`, `atr_14`) and let a
+# **train-only** ablation decide which — if any — enter `X`. Nothing here reads val or holdout: selection on the
+# test set is leakage, so the whole harness lives inside `train_c`.
+#
+# Two independent train-only signals, and a candidate must clear **both**:
+# 1. **Mutual information** vs the next-day target, above a shuffled-target noise floor (+3 sigma).
+# 2. **Walk-forward permutation importance** — train LightGBM on expanding folds, permute each candidate on the
+#    out-of-sample block, and keep only those whose permutation *raises* OOS RMSE on average (i.e. the model
+#    actually relies on them beyond the 39 baseline features).
+#
+# The `date_folds` helper below (5 expanding folds, split by DATE so all tickers share the boundary, purged by
+# one trading day so the next-day label can't bleed across a fold edge) is reused by the Optuna tuning in 5b.
+
+# %%
+import lightgbm as lgb
+from sklearn.feature_selection import mutual_info_regression
+
+CV_OOS_YEARS = [2019, 2020, 2021, 2022, 2023]  # 5 expanding walk-forward folds, all inside TRAIN
+
+
+def date_folds(df, oos_years=CV_OOS_YEARS, embargo=1):
+    """Purged expanding walk-forward folds over TRAIN only. Yields (train_idx, oos_idx) into df.index:
+    expanding train history, one OOS calendar year each, split by DATE (all tickers share the threshold),
+    purged by `embargo` trading days at the train's right edge so the last train row's next-day target
+    (which lands in the OOS block) is removed -- the only label overlap in a 1-step-ahead expanding scheme."""
+    d = df.sort_values(["ticker", "date"])
+    dates = d["date"]
+    for y in oos_years:
+        oos_start, oos_end = pd.Timestamp(y, 1, 1), pd.Timestamp(y + 1, 1, 1)
+        oos_mask = (dates >= oos_start) & (dates < oos_end)
+        if not oos_mask.any():
+            continue
+        tr_dates = dates[dates < oos_start].drop_duplicates().sort_values()
+        if len(tr_dates) <= embargo:
+            continue
+        cut = tr_dates.iloc[-embargo]          # purge the last `embargo` train dates
+        yield d.index[dates < cut], d.index[oos_mask]
+
+
+_folds = list(date_folds(train_c))
+print(f"walk-forward folds (train-only): {len(_folds)}")
+for i, (tr, oo) in enumerate(_folds, 1):
+    print(f"  fold {i}: train {len(tr):5d} -> OOS {len(oo):5d} "
+          f"[{train_c.loc[oo, 'date'].min().date()}..{train_c.loc[oo, 'date'].max().date()}]")
+
+_rng = np.random.RandomState(SEED)
+POOL = MODEL_FEATURES + CANDIDATE_FEATURES
+
+# Signal 1: mutual information vs next-day target + shuffled-target noise floor (+3 sigma).
+mi = pd.Series(mutual_info_regression(train_c[POOL].values, train_c[TARGET].values, random_state=SEED), index=POOL)
+_floor_samples = [mutual_info_regression(train_c[CANDIDATE_FEATURES].values, _rng.permutation(train_c[TARGET].values),
+                                         random_state=SEED) for _ in range(5)]
+MI_FLOOR = float(np.mean(_floor_samples)) + 3 * float(np.std(_floor_samples))
+print(f"\nMI noise floor (shuffled target, +3 sigma): {MI_FLOOR:.5f}")
+
+
+# Signal 2: walk-forward permutation importance (mean OOS RMSE increase when a candidate is shuffled).
+def _wf_perm_importance(pool, candidates):
+    params = dict(objective="regression", n_estimators=300, learning_rate=0.03, num_leaves=31,
+                  min_child_samples=50, subsample=0.8, colsample_bytree=0.7, reg_lambda=1.0,
+                  random_state=SEED, n_jobs=-1, verbosity=-1, deterministic=True, force_row_wise=True)
+    feat_t = pool + ["ticker"]
+    deltas = {c: [] for c in candidates}
+    for tr_idx, oo_idx in date_folds(train_c):
+        Xtr = train_c.loc[tr_idx, pool].copy(); Xtr["ticker"] = train_c.loc[tr_idx, "ticker"].astype("category")
+        Xoo = train_c.loc[oo_idx, pool].copy(); Xoo["ticker"] = train_c.loc[oo_idx, "ticker"].astype("category")
+        ytr, yoo = train_c.loc[tr_idx, TARGET].values, train_c.loc[oo_idx, TARGET].values
+        m = lgb.LGBMRegressor(**params).fit(Xtr[feat_t], ytr, categorical_feature=["ticker"])
+        base = rmse(yoo, m.predict(Xoo[feat_t]))
+        for c in candidates:
+            Xp = Xoo.copy(); Xp[c] = _rng.permutation(Xp[c].values)
+            deltas[c].append(rmse(yoo, m.predict(Xp[feat_t])) - base)
+    return {c: (float(np.mean(v)), float(np.std(v))) for c, v in deltas.items()}
+
+
+_perm = _wf_perm_importance(POOL, CANDIDATE_FEATURES)
+
+# KEEP rule: clears the MI floor AND its walk-forward permutation importance EXCEEDS ITS OWN CROSS-FOLD NOISE
+# (perm_dRMSE > perm_std) — a mean that is merely positive-by-a-hair is indistinguishable from zero and would
+# keep a feature on noise, so we require the permutation benefit to be at least one fold-std above zero.
+_abl_rows, KEPT = [], []
+for c in CANDIDATE_FEATURES:
+    mi_c, (p_mean, p_std) = float(mi[c]), _perm[c]
+    keep = (mi_c > MI_FLOOR) and (p_mean > p_std)
+    KEPT.append(c) if keep else None
+    _abl_rows.append({"candidate": c, "MI": round(mi_c, 5), "MI_floor": round(MI_FLOOR, 5),
+                      "perm_dRMSE": round(p_mean, 7), "perm_std": round(p_std, 7),
+                      "verdict": "KEEP" if keep else "reject"})
+abl_table = pd.DataFrame(_abl_rows)
+print("\nAblation verdicts (train-only; val/holdout never touched):")
+print(abl_table.to_string(index=False))
+abl_table.to_csv(MODELS / "feature_ablation.csv", index=False)
+
+FEAT_MODEL = MODEL_FEATURES + KEPT   # the ACTIVE feature set for every downstream model (LGB + LSTM)
+print(f"\nKEPT candidates: {KEPT if KEPT else 'NONE'}")
+print(f"FEAT_MODEL = {len(MODEL_FEATURES)} baseline + {len(KEPT)} kept = {len(FEAT_MODEL)} features")
+
+# Ablation figure: MI per candidate vs the noise floor.
+fig, ax = plt.subplots(figsize=(8, 5))
+_cand_mi = mi[CANDIDATE_FEATURES].sort_values()
+colors = ["seagreen" if c in KEPT else "silver" for c in _cand_mi.index]
+_cand_mi.plot(kind="barh", ax=ax, color=colors)
+ax.axvline(MI_FLOOR, color="crimson", ls="--", lw=1.2, label=f"noise floor +3sd = {MI_FLOOR:.4f}")
+ax.set_title("M3.5 feature ablation — candidate MI vs next-day target (green=kept)")
+ax.set_xlabel("mutual information"); ax.legend()
+fig.tight_layout(); fig.savefig(FIG / "M3_fig_ablation.png", dpi=120); plt.close(fig)
+print("saved:", FIG / "M3_fig_ablation.png")
 
 # %% [markdown]
 # ## 2. Baselines (scored on val)
@@ -383,12 +503,12 @@ def add_onehot(df):
     oh = pd.get_dummies(df["ticker"]).reindex(columns=TICKERS, fill_value=0).astype("float32")
     return oh
 
-scaler = StandardScaler().fit(train_c[MODEL_FEATURES].values)
-FEAT_COLS = MODEL_FEATURES + TICKERS
+scaler = StandardScaler().fit(train_c[FEAT_MODEL].values)   # FEAT_MODEL = baseline + ablation survivors
+FEAT_COLS = FEAT_MODEL + TICKERS
 
 
 def build_matrix(df):
-    feats = pd.DataFrame(scaler.transform(df[MODEL_FEATURES].values), columns=MODEL_FEATURES, index=df.index)
+    feats = pd.DataFrame(scaler.transform(df[FEAT_MODEL].values), columns=FEAT_MODEL, index=df.index)
     oh = add_onehot(df)
     X = pd.concat([feats, oh.set_axis(df.index)], axis=1)[FEAT_COLS].astype("float32")
     return X
@@ -413,36 +533,104 @@ X_va, y_va = make_sequences(val_c)
 print("LSTM tensors -> X_tr:", X_tr.shape, "X_va:", X_va.shape)
 
 
-def build_lstm(n_feat, units=64, layers=1, attention=False):
+def build_lstm(n_feat, units=64, layers=1, attention=False, dropout=0.2, learning_rate=1e-3, bidirectional=False):
     """Functional Keras LSTM. With attention=True, an additive attention layer pools the LSTM's per-timestep
     outputs (weights every day in the 60-day window) instead of taking only the last step — letting the model
-    focus on the most informative days (e.g. a vol spike) rather than just the most recent one."""
+    focus on the most informative days (e.g. a vol spike) rather than just the most recent one.
+    dropout / learning_rate / bidirectional are exposed for the Optuna search (Colab GPU)."""
+    def _lstm(u, return_sequences):
+        layer = keras.layers.LSTM(u, return_sequences=return_sequences)
+        return keras.layers.Bidirectional(layer) if bidirectional else layer
+
     inp = keras.layers.Input(shape=(SEQ_LEN, n_feat))
     if layers == 2:
-        x = keras.layers.LSTM(units, return_sequences=True)(inp)
-        x = keras.layers.Dropout(0.2)(x)
-        x = keras.layers.LSTM(units, return_sequences=attention)(x)  # keep sequence if attention pools it
+        x = _lstm(units, True)(inp)
+        x = keras.layers.Dropout(dropout)(x)
+        x = _lstm(units, attention)(x)  # keep sequence if attention pools it
     else:
-        x = keras.layers.LSTM(units, return_sequences=attention)(inp)
+        x = _lstm(units, attention)(inp)
     if attention:
         # additive (Bahdanau-style) self-attention pooling over timesteps
         score_t = keras.layers.Dense(1, activation="tanh")(x)               # (batch, T, 1)
         weights = keras.layers.Softmax(axis=1)(score_t)                     # attention weight per timestep
         x = keras.layers.Multiply()([x, weights])
         x = keras.layers.Lambda(lambda z: tf.reduce_sum(z, axis=1))(x)      # context vector
-    x = keras.layers.Dropout(0.2)(x)
+    x = keras.layers.Dropout(dropout)(x)
     out = keras.layers.Dense(1)(x)
     m = keras.Model(inp, out)
-    m.compile(optimizer="adam", loss="mse", metrics=["mae"])
+    m.compile(optimizer=keras.optimizers.Adam(learning_rate=learning_rate), loss="mse", metrics=["mae"])
     return m
 
 
-# FULL_TRAIN auto-enables on a Colab GPU (20-epoch, 2-layer attention). Locally it stays a 2-epoch smoke-test.
-# Force it anywhere with the env var LSTM_FULL_TRAIN=1.
+def _lstm_inner_split(cut_date, embargo=1):
+    """Inner purged time split of train_c for LSTM tuning (Colab). Scaler is refit on INNER-TRAIN only so the
+    search never leaks inner-val statistics. Returns ((X_it, y_it), (X_iv, y_iv))."""
+    tr_all = train_c[train_c.date < cut_date]
+    tr_dates = np.sort(tr_all.date.unique())
+    tr = tr_all[tr_all.date < tr_dates[-embargo]]            # embargo: drop last train date(s) before the cut
+    va = train_c[train_c.date >= cut_date]
+    sc = StandardScaler().fit(tr[FEAT_MODEL].values)
+
+    def _seq(df):
+        feats = pd.DataFrame(sc.transform(df[FEAT_MODEL].values), columns=FEAT_MODEL, index=df.index)
+        Xmat = pd.concat([feats, add_onehot(df).set_axis(df.index)], axis=1)[FEAT_MODEL + TICKERS].astype("float32")
+        Xs, ys = [], []
+        for t in TICKERS:
+            idx = df.index[df.ticker == t]
+            Xt, yt = Xmat.loc[idx].values, df.loc[idx, TARGET].values
+            for i in range(SEQ_LEN, len(Xt)):
+                Xs.append(Xt[i - SEQ_LEN:i]); ys.append(yt[i])
+        return np.asarray(Xs, "float32"), np.asarray(ys, "float32")
+
+    return _seq(tr), _seq(va)
+
+
+# FULL_TRAIN auto-enables on a Colab GPU (20-epoch attention + Optuna search). Locally it stays a 2-epoch
+# smoke-test. Force it anywhere with the env var LSTM_FULL_TRAIN=1.
 FULL_TRAIN = bool(len(tf.config.list_physical_devices("GPU"))) or os.environ.get("LSTM_FULL_TRAIN") == "1"
-EPOCHS = 20 if FULL_TRAIN else 2
-lstm = build_lstm(X_tr.shape[2], units=64 if FULL_TRAIN else 32, layers=2 if FULL_TRAIN else 1, attention=True)
-lstm.fit(X_tr, y_tr, validation_data=(X_va, y_va), epochs=EPOCHS, batch_size=64 if FULL_TRAIN else 128,
+
+# Default (smoke) config; on a Colab GPU an Optuna search replaces it with a tuned config.
+lstm_cfg = dict(units=32, layers=1, dropout=0.2, learning_rate=1e-3, batch_size=128, bidirectional=False)
+EPOCHS = 2
+
+if FULL_TRAIN:
+    EPOCHS = 20
+    lstm_cfg.update(units=64, layers=2, batch_size=64)
+    # Small Optuna search over ONE purged inner time-split (last ~250 train dates as inner-val; scaler refit
+    # on inner-train only). Kept small (15 trials x 10 epochs) — a full sequence-CV per trial is too costly.
+    import optuna
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    _all_dates = np.sort(train_c.date.unique())
+    (_Xit, _yit), (_Xiv, _yiv) = _lstm_inner_split(pd.Timestamp(_all_dates[-250]))
+    print(f"LSTM Optuna inner split: train seq={_Xit.shape}, inner-val seq={_Xiv.shape}")
+
+    def _lstm_objective(trial):
+        cfg = dict(
+            units=trial.suggest_categorical("units", [32, 64, 96]),
+            dropout=trial.suggest_float("dropout", 0.1, 0.3),
+            learning_rate=trial.suggest_float("learning_rate", 1e-4, 3e-3, log=True),
+            batch_size=trial.suggest_categorical("batch_size", [32, 64]),
+            layers=trial.suggest_categorical("layers", [1, 2]),
+            bidirectional=trial.suggest_categorical("bidirectional", [False, True]),
+        )
+        keras.backend.clear_session()
+        mdl = build_lstm(_Xit.shape[2], attention=True, units=cfg["units"], layers=cfg["layers"],
+                         dropout=cfg["dropout"], learning_rate=cfg["learning_rate"], bidirectional=cfg["bidirectional"])
+        mdl.fit(_Xit, _yit, validation_data=(_Xiv, _yiv), epochs=10, batch_size=cfg["batch_size"], shuffle=False,
+                verbose=0, callbacks=[keras.callbacks.EarlyStopping(patience=2, restore_best_weights=True)])
+        return rmse(_yiv, mdl.predict(_Xiv, verbose=0).ravel())
+
+    _lstm_study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=SEED))
+    _lstm_study.optimize(_lstm_objective, n_trials=15, show_progress_bar=False)
+    lstm_cfg.update(_lstm_study.best_params)
+    (MODELS / "lstm_best_params.json").write_text(json.dumps(
+        {**_lstm_study.best_params, "inner_val_rmse": round(_lstm_study.best_value, 6)}, indent=2))
+    print("LSTM best config (Optuna):", _lstm_study.best_params)
+
+lstm = build_lstm(X_tr.shape[2], attention=True, units=lstm_cfg["units"], layers=lstm_cfg["layers"],
+                  dropout=lstm_cfg["dropout"], learning_rate=lstm_cfg["learning_rate"],
+                  bidirectional=lstm_cfg["bidirectional"])
+lstm.fit(X_tr, y_tr, validation_data=(X_va, y_va), epochs=EPOCHS, batch_size=lstm_cfg["batch_size"],
          shuffle=False, verbose=2,
          callbacks=[keras.callbacks.EarlyStopping(patience=3, restore_best_weights=True)] if FULL_TRAIN else [])
 lstm_pred = lstm.predict(X_va, verbose=0).ravel()
@@ -478,6 +666,8 @@ print(f"\nFULL_TRAIN={FULL_TRAIN}  {LSTM_TAG}:",
 # %%
 import lightgbm as lgb
 
+# BASELINE LightGBM: the original 39 MODEL_FEATURES, deliberately un-tuned. Left untouched so it stays the
+# fixed reference for the promote/revert guardrail in 5b-tune / section 8 (tuned+FEAT_MODEL must beat THIS).
 Xtr = train_c[MODEL_FEATURES].copy(); Xtr["ticker"] = train_c["ticker"].astype("category")
 Xva = val_c[MODEL_FEATURES].copy();  Xva["ticker"] = val_c["ticker"].astype("category")
 ytr, yva = train_c[TARGET].values, val_c[TARGET].values
@@ -485,7 +675,7 @@ FEAT_LGB = MODEL_FEATURES + ["ticker"]
 
 lgb_params = dict(objective="regression", n_estimators=400, learning_rate=0.02, num_leaves=31,
                   min_child_samples=50, subsample=0.8, colsample_bytree=0.7, reg_lambda=1.0,
-                  random_state=SEED, n_jobs=-1, verbosity=-1)
+                  random_state=SEED, n_jobs=-1, verbosity=-1, deterministic=True, force_row_wise=True)
 lgb_model = lgb.LGBMRegressor(**lgb_params)
 lgb_model.fit(Xtr[FEAT_LGB], ytr, categorical_feature=["ticker"])
 lgb_val_pred = lgb_model.predict(Xva[FEAT_LGB])
@@ -506,18 +696,127 @@ exog_in_top = [f for f in imp.head(15).index if f in ("vix_level", "vix_z_60", "
 print("exogenous features in LightGBM top-15:", exog_in_top)
 
 # %% [markdown]
-# ## 5c. Ensemble — blend LightGBM (tabular) + LSTM (sequence)
+# ## 5b-tune. Optuna hyperparameter search for LightGBM (leakage-free walk-forward CV)
 #
-# The hybrid: average the two models' predictions after z-scoring each (so neither dominates by scale). This
-# combines complementary views — LightGBM's tabular feature interactions + the LSTM's temporal sequence memory.
+# The baseline above is deliberately un-tuned and overfits (val edge that dies out-of-sample). Here we tune it
+# **properly**: an Optuna TPE search whose objective is the **mean out-of-sample RMSE across the 5 purged
+# walk-forward folds** from section 1b — so hyperparameters are chosen on multiple chronological OOS blocks,
+# never on val or holdout. This is the single biggest methodological fix: it replaces the one-val-peek selection
+# (which caused the overfit) with leakage-free cross-validation. `n_estimators` is NOT tuned blindly — each fold
+# early-stops on its own OOS slice and we take the **median** best-iteration. The tuned model trains on
+# `FEAT_MODEL` (39 baseline + any ablation survivor). Whether it actually beats the baseline is decided ONLY
+# on the sealed holdout in section 8 (`PROMOTE`/`REVERT`) — the honest test, given the diagnosed overfit.
 #
-# > **Local caveat:** the LSTM here is the 2-epoch smoke model, so the blended *number* below is illustrative
-# > plumbing, not a result. The blend recipe is correct; swap in the Colab-trained LSTM predictions for the
-# > real ensemble score.
+# > Caveat (disclosed): each fold early-stops on the same OOS slice it is then scored on, so the reported CV RMSE
+# > is mildly optimistic about tree count. This is contained — it is all inside train, every trial shares the
+# > bias, and the promote/revert decision rests on the sealed holdout, never on the optimistic CV number.
+
+# %%
+import optuna
+
+optuna.logging.set_verbosity(optuna.logging.WARNING)   # quiet console (ASCII-only, cp1252-safe)
+FEAT_LGB_TUNED = FEAT_MODEL + ["ticker"]
+LGB_FIXED = dict(objective="regression", random_state=SEED, n_jobs=-1, verbosity=-1,
+                 deterministic=True, force_row_wise=True)
+LGB_MAX_ROUNDS, LGB_ES, N_TRIALS_LGB = 2000, 50, 60
+
+
+def _lgb_cv(params):
+    """Mean OOS RMSE + DirAcc + median best-iter + RMSE-std across the purged walk-forward folds (train-only)."""
+    rmses, das, iters = [], [], []
+    for tr_idx, oo_idx in date_folds(train_c):
+        Xt = train_c.loc[tr_idx, FEAT_MODEL].copy(); Xt["ticker"] = train_c.loc[tr_idx, "ticker"].astype("category")
+        Xo = train_c.loc[oo_idx, FEAT_MODEL].copy(); Xo["ticker"] = train_c.loc[oo_idx, "ticker"].astype("category")
+        yt, yo = train_c.loc[tr_idx, TARGET].values, train_c.loc[oo_idx, TARGET].values
+        m = lgb.LGBMRegressor(n_estimators=LGB_MAX_ROUNDS, **LGB_FIXED, **params)
+        m.fit(Xt[FEAT_LGB_TUNED], yt, eval_set=[(Xo[FEAT_LGB_TUNED], yo)], eval_metric="rmse",
+              categorical_feature=["ticker"], callbacks=[lgb.early_stopping(LGB_ES, verbose=False)])
+        it = m.best_iteration_ or LGB_MAX_ROUNDS
+        p = m.predict(Xo[FEAT_LGB_TUNED], num_iteration=it)
+        rmses.append(rmse(yo, p)); das.append(directional_accuracy(yo, p)); iters.append(it)
+    return float(np.mean(rmses)), float(np.nanmean(das)), int(np.median(iters)), float(np.std(rmses))
+
+
+def _lgb_objective(trial):
+    params = dict(
+        learning_rate=trial.suggest_float("learning_rate", 5e-3, 0.1, log=True),
+        num_leaves=trial.suggest_int("num_leaves", 15, 127),
+        max_depth=trial.suggest_int("max_depth", 3, 12),
+        feature_fraction=trial.suggest_float("feature_fraction", 0.5, 1.0),   # alias: colsample_bytree
+        bagging_fraction=trial.suggest_float("bagging_fraction", 0.5, 1.0),   # alias: subsample
+        bagging_freq=1,
+        lambda_l1=trial.suggest_float("lambda_l1", 1e-3, 10.0, log=True),     # alias: reg_alpha
+        lambda_l2=trial.suggest_float("lambda_l2", 1e-3, 10.0, log=True),     # alias: reg_lambda
+        min_child_samples=trial.suggest_int("min_child_samples", 5, 200),
+    )
+    mean_rmse, mean_da, med_iter, sd = _lgb_cv(params)
+    trial.set_user_attr("mean_diracc", mean_da)
+    trial.set_user_attr("median_best_iter", med_iter)
+    trial.set_user_attr("rmse_std", sd)
+    return mean_rmse   # PRIMARY objective: minimize mean OOS RMSE (DirAcc/std reported, not optimized-for)
+
+
+print(f"\nOptuna LightGBM search: {N_TRIALS_LGB} trials x 5 walk-forward folds (train-only)...")
+study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=SEED))
+study.optimize(_lgb_objective, n_trials=N_TRIALS_LGB, show_progress_bar=False)
+best = study.best_trial
+med_iter = best.user_attrs["median_best_iter"]
+lgb_params_tuned = dict(n_estimators=med_iter, bagging_freq=1, **LGB_FIXED, **best.params)
+print(f"best CV mean-RMSE={best.value:.6f}  (DirAcc={best.user_attrs['mean_diracc']:.4f}, "
+      f"RMSE-std={best.user_attrs['rmse_std']:.6f}, n_estimators={med_iter})")
+print("best params:", {k: (round(v, 5) if isinstance(v, float) else v) for k, v in best.params.items()})
+
+# Refit tuned on full train, score on val (a plain reporting row; val is NOT used for selection).
+Xtr_t = train_c[FEAT_MODEL].copy(); Xtr_t["ticker"] = train_c["ticker"].astype("category")
+Xva_t = val_c[FEAT_MODEL].copy();  Xva_t["ticker"] = val_c["ticker"].astype("category")
+lgb_tuned = lgb.LGBMRegressor(**lgb_params_tuned).fit(Xtr_t[FEAT_LGB_TUNED], ytr, categorical_feature=["ticker"])
+lgb_tuned_val_pred = lgb_tuned.predict(Xva_t[FEAT_LGB_TUNED])
+val_scores.append(score("LightGBM (tuned)", yva, lgb_tuned_val_pred))
+print("LightGBM (tuned) val:", {k: round(v, 5) if isinstance(v, float) else v for k, v in val_scores[-1].items()})
+
+# Artifacts: best params + CV summary, the study, and a tuning-history figure (matplotlib backend, no plotly).
+import pickle
+(MODELS / "lgbm_best_params.json").write_text(json.dumps({
+    "best_params": best.params, "median_best_iter": med_iter, "cv_mean_rmse": round(best.value, 6),
+    "cv_mean_diracc": round(best.user_attrs["mean_diracc"], 4), "cv_rmse_std": round(best.user_attrs["rmse_std"], 6),
+    "n_trials": N_TRIALS_LGB, "feat_model": FEAT_MODEL, "kept_candidates": KEPT}, indent=2))
+with open(MODELS / "lgbm_optuna_study.pkl", "wb") as f:
+    pickle.dump(study, f)
+try:
+    from optuna.visualization.matplotlib import plot_optimization_history
+    ax = plot_optimization_history(study)
+    ax.figure.tight_layout(); ax.figure.savefig(FIG / "M3_fig_lgb_optuna.png", dpi=120); plt.close(ax.figure)
+    print("saved:", FIG / "M3_fig_lgb_optuna.png")
+except Exception as e:   # viz is optional; never let a plotting hiccup fail the pipeline
+    print("optuna viz skipped:", e)
+
+# %% [markdown]
+# ## 5c. Ensemble — return-scale average of the two holdout survivors (GJR-GARCH mean + attention-LSTM)
+#
+# The previous ensemble z-scored LightGBM + LSTM and could only report *direction* (z-scoring discards the
+# return scale). Two problems: it was off-scale (no RMSE / DM / cost-backtest), and it blended the **overfit**
+# LightGBM (holdout DirAcc 0.499) into the real-edge LSTM, dragging the blend toward a coin flip.
+#
+# The M3.5 fix: **equal-weight average, on the RETURN SCALE, of GJR-GARCH-mean and the attention-LSTM** — two of
+# the three models with a significant holdout directional edge. Honest framing: GARCH's mean forecast is a small,
+# lag-1-driven, **near-naive anchor** (§4 says its mean is "~the naive mean"), so this blend is really the LSTM
+# **shrunk halfway toward a near-zero anchor** — often helpful for near-zero-mean returns, not a fusion of two
+# independent alphas. Whether averaging genuinely helps depends on how decorrelated the members' errors are, so
+# §8 **measures** that error correlation on the holdout rather than asserting it. Keeping the return scale makes
+# RMSE / MAE / Diebold-Mariano well-defined and lets it feed the costed backtest. Equal 0.5/0.5 weight is the
+# honest default (tuning weights on val would overfit).
+#
+# Why these two and not the tuned LightGBM (also 0.542, p=0.002)? Its edge rides the same lag-1 mean-reversion
+# microstructure as GARCH-mean, so adding it is redundant, not diversifying — a judgment call, stated openly.
+# The old LGB+LSTM z-blend is retained below only as the *rejected* baseline.
+#
+# > Local caveat: locally the LSTM is a 2-epoch smoke model, so the blended number is plumbing; the real
+# > ensemble score (and the error-correlation measurement) come from the Colab-trained LSTM (§8).
 
 # %%
 def zblend(*preds):
-    """Average several prediction vectors after standardizing each to zero-mean/unit-std."""
+    """Average prediction vectors after standardizing each to zero-mean/unit-std. Kept ONLY to reproduce the
+    REJECTED baseline blend (direction-only, off the return scale) for the record."""
     zs = []
     for p in preds:
         p = np.asarray(p, float)
@@ -525,10 +824,31 @@ def zblend(*preds):
         zs.append((p - p.mean()) / sd if sd > 0 else p - p.mean())
     return np.mean(zs, axis=0)
 
+
+def blend_returns(*preds):
+    """Equal-weight average of RETURN-SCALE prediction vectors (keeps the scale so RMSE/MAE/DM stay valid)."""
+    return np.mean([np.asarray(p, float) for p in preds], axis=0)
+
+
+# GARCH mean forecasts are pooled in TICKERS order ([^GSPC, AAPL, AMZN, NVDA]), but val_c is sorted
+# ALPHABETICALLY (^ = ASCII 94 > 'Z', so ^GSPC sorts LAST). Remap per-ticker to val_c row positions so the
+# GARCH preds, the LSTM preds (lstm_full, val_c order) and the target (yva) all line up.
+_gp = np.asarray(garch_val_pred, float)
+garch_val_arr = np.full(len(val_c), np.nan)
+_pos = 0
+for t in TICKERS:
+    idx = np.where(val_c.ticker.values == t)[0]
+    garch_val_arr[idx] = _gp[_pos:_pos + len(idx)]; _pos += len(idx)
+assert not np.isnan(garch_val_arr).any(), "GARCH val remap left NaNs (ticker length mismatch)"
+# order sanity: GARCH's own target (garch_val_true, same loop order) remapped to val_c order must equal yva
+_gt = np.full(len(val_c), np.nan); _pos = 0; _gtv = np.asarray(garch_val_true, float)
+for t in TICKERS:
+    idx = np.where(val_c.ticker.values == t)[0]
+    _gt[idx] = _gtv[_pos:_pos + len(idx)]; _pos += len(idx)
+assert np.allclose(_gt, val_c[TARGET].values), "GARCH val remap misaligned to val_c target order"
+
 # Align LSTM (sequence) preds to the tabular rows: sequences drop the first SEQ_LEN rows per ticker.
-# For the illustrative local blend we align on the overlapping tail per ticker.
 lstm_full = np.full(len(val_c), np.nan)
-pos = 0
 seq_pos = 0
 for t in TICKERS:
     n_rows = int((val_c.ticker == t).sum())
@@ -540,22 +860,27 @@ for t in TICKERS:
 assert int((~np.isnan(lstm_full)).sum()) == sum(max(0, int((val_c.ticker == t).sum()) - SEQ_LEN) for t in TICKERS), \
     "ensemble remap count mismatch — LSTM sequence ordering changed"
 m = ~np.isnan(lstm_full)
-ens_pred = zblend(lgb_val_pred[m], lstm_full[m])
-# A z-scored blend is on a UNIT-VARIANCE scale, not the return scale — so RMSE/MAE are NOT comparable to the
-# other models (only the SIGN/direction is meaningful). Report DirAcc only; RMSE/MAE = NaN by design.
-_ens_tag = "Ensemble LGB+LSTM (FINAL, dir-only)" if FULL_TRAIN else "Ensemble LGB+LSTM (smoke, dir-only)"
-ens_score = {"model": _ens_tag, "RMSE": float("nan"), "MAE": float("nan"),
-             "DirAcc": directional_accuracy(yva[m], ens_pred), "DirAcc_p": diracc_pvalue(yva[m], ens_pred)}
+
+# PRIMARY ensemble (return scale): GARCH-mean + attention-LSTM, equal weight -> fully scorable (RMSE/MAE/DirAcc).
+ens_pred = blend_returns(garch_val_arr[m], lstm_full[m])
+_ens_tag = "Ensemble GARCH+LSTM (FINAL)" if FULL_TRAIN else "Ensemble GARCH+LSTM (smoke)"
+ens_score = score(_ens_tag, yva[m], ens_pred)
 val_scores.append(ens_score)
-print(f"Ensemble ({'REAL LSTM' if FULL_TRAIN else 'illustrative, LSTM=smoke'}; directional only):",
-      {k: (round(v, 5) if isinstance(v, float) and np.isfinite(v) else v) for k, v in ens_score.items()})
+print(f"Ensemble GARCH+LSTM ({'REAL LSTM' if FULL_TRAIN else 'illustrative, LSTM=smoke'}):",
+      {k: round(v, 5) if isinstance(v, float) else v for k, v in ens_score.items()})
+
+# REJECTED baseline for the record: old LGB+LSTM z-blend (off-scale, includes the overfit LightGBM member).
+_old_ens = zblend(lgb_val_pred[m], lstm_full[m])
+print("  (rejected baseline LGB+LSTM z-blend, dir-only): DirAcc=%.3f p=%.3f"
+      % (directional_accuracy(yva[m], _old_ens), diracc_pvalue(yva[m], _old_ens)))
 
 # %% [markdown]
 # ## 6. Model comparison (val)
 
 # %%
 # LSTM smoke score is kept OUT of the comparison table (it is not a real result).
-val_table = pd.DataFrame(val_scores).round(5)  # only baselines + ARIMA + GARCH-mean
+# Table now also carries LightGBM (tuned) and the GARCH+LSTM ensemble rows.
+val_table = pd.DataFrame(val_scores).round(5)
 val_table.to_csv(MODELS / "val_scores.csv", index=False)
 print(val_table.to_string(index=False))
 
@@ -693,6 +1018,7 @@ for t in TICKERS:
 hold_df["y_pred_garch"] = garch_hold
 
 # LightGBM on holdout: retrain on train+val (with the exogenous features), predict holdout once.
+# BASELINE LightGBM on holdout (39 features, un-tuned) — the reference the tuned model must beat.
 Xtrv = trainval[MODEL_FEATURES].copy(); Xtrv["ticker"] = trainval["ticker"].astype("category")
 lgb_final = lgb.LGBMRegressor(**lgb_params)
 lgb_final.fit(Xtrv[FEAT_LGB], trainval[TARGET].values, categorical_feature=["ticker"])
@@ -702,9 +1028,18 @@ hold_df["y_pred_lgb"] = lgb_final.predict(
     ho_sorted[MODEL_FEATURES].assign(ticker=ho_sorted["ticker"].astype("category"))[FEAT_LGB])
 lgb_final.booster_.save_model(str(MODELS / "lgbm_global_final.txt"))
 
+# TUNED LightGBM on holdout (FEAT_MODEL = 39 + ablation survivors, Optuna params) — refit on train+val.
+Xtrv_t = trainval[FEAT_MODEL].copy(); Xtrv_t["ticker"] = trainval["ticker"].astype("category")
+lgb_final_tuned = lgb.LGBMRegressor(**lgb_params_tuned)
+lgb_final_tuned.fit(Xtrv_t[FEAT_LGB_TUNED], trainval[TARGET].values, categorical_feature=["ticker"])
+hold_df["y_pred_lgb_tuned"] = lgb_final_tuned.predict(
+    ho_sorted[FEAT_MODEL].assign(ticker=ho_sorted["ticker"].astype("category"))[FEAT_LGB_TUNED])
+lgb_final_tuned.booster_.save_model(str(MODELS / "lgbm_global_tuned_final.txt"))
+
 # LSTM on holdout (only when fully trained on Colab GPU): build holdout sequences, predict, map back.
 # First SEQ_LEN rows per ticker have no 60-day history -> stay NaN. build_matrix reuses the train-only scaler.
-holdout_models = [("ARIMA", "y_pred_arima"), ("GJR-GARCH-t", "y_pred_garch"), ("LightGBM", "y_pred_lgb")]
+holdout_models = [("ARIMA", "y_pred_arima"), ("GJR-GARCH-t", "y_pred_garch"),
+                  ("LightGBM", "y_pred_lgb"), ("LightGBM (tuned)", "y_pred_lgb_tuned")]
 if FULL_TRAIN:
     X_ho, _ = make_sequences(hold_c)
     ho_lstm_pred = lstm.predict(X_ho, verbose=0).ravel()
@@ -717,6 +1052,17 @@ if FULL_TRAIN:
         p += n_seq
     hold_df["y_pred_lstm"] = lstm_hold
     holdout_models.append(("LSTM+Attention", "y_pred_lstm"))
+    # Return-scale ensemble on holdout: GARCH-mean + LSTM (equal weight), on rows where both preds exist.
+    _mm = hold_df[["y_pred_garch", "y_pred_lstm"]].notna().all(axis=1)
+    hold_df["y_pred_ens"] = np.nan
+    hold_df.loc[_mm, "y_pred_ens"] = 0.5 * hold_df.loc[_mm, "y_pred_garch"] + 0.5 * hold_df.loc[_mm, "y_pred_lstm"]
+    holdout_models.append(("Ensemble GARCH+LSTM", "y_pred_ens"))
+    # MEASURE (don't assert) how decorrelated the members' errors are — averaging only helps if they are.
+    _eg = hold_df.loc[_mm, "y_true"] - hold_df.loc[_mm, "y_pred_garch"]
+    _el = hold_df.loc[_mm, "y_true"] - hold_df.loc[_mm, "y_pred_lstm"]
+    ens_err_corr = float(np.corrcoef(_eg, _el)[0, 1])
+    print(f"Ensemble members holdout error corr (GARCH vs LSTM) = {ens_err_corr:.3f} "
+          f"(low => averaging helps; ~1 => redundant, GARCH-mean is a near-naive anchor shrinking the LSTM)")
 
 hold_df.to_parquet(PROC / "holdout_predictions.parquet", index=False)
 hold_table = pd.DataFrame(rows).round(5)
@@ -731,12 +1077,40 @@ for name, col in holdout_models:
     dap = diracc_pvalue(_v.y_true, _v[col]); dm = diebold_mariano(_v.y_true, _v[col], np.zeros(len(_v)))
     print(f"Pooled holdout {name:<14}: RMSE={rm:.5f} vs naive {_naive:.5f} (DM p={dm[1]:.3f}) | "
           f"DirAcc={da:.3f} (binomial p={dap:.3f})")
-dm_ho = diebold_mariano(hold_df.y_true, hold_df.y_pred_arima, np.zeros(len(hold_df)))
-ho_rmse = rmse(hold_df.y_true, hold_df.y_pred_arima)
 ho_rmse = rmse(hold_df.y_true, hold_df.y_pred_arima)
 dm_ho = diebold_mariano(hold_df.y_true, hold_df.y_pred_arima, np.zeros(len(hold_df)))
 ho_da, ho_da_p = directional_accuracy(hold_df.y_true, hold_df.y_pred_arima), diracc_pvalue(hold_df.y_true, hold_df.y_pred_arima)
 print("Interpretation: if DM p>0.05 AND DirAcc p>0.05 -> NO significant out-of-sample skill (the expected EMH result).")
+
+# --- Promote/revert guardrail: tuned LightGBM (FEAT_MODEL + Optuna) vs baseline (39 feat, un-tuned) ---
+# Pre-registered metric = pooled holdout RMSE (DirAcc as tie context; DM tests if the RMSE gap is real).
+# PROMOTE only if tuned improves RMSE AND is not statistically-significantly worse; else REVERT and say so.
+_b = hold_df.dropna(subset=["y_pred_lgb"]); _t = hold_df.dropna(subset=["y_pred_lgb_tuned"])
+rmse_lgb_base, rmse_lgb_tuned = rmse(_b.y_true, _b.y_pred_lgb), rmse(_t.y_true, _t.y_pred_lgb_tuned)
+da_lgb_base, da_lgb_tuned = directional_accuracy(_b.y_true, _b.y_pred_lgb), directional_accuracy(_t.y_true, _t.y_pred_lgb_tuned)
+dm_tuned_stat, dm_tuned_p = diebold_mariano(hold_df.y_true, hold_df.y_pred_lgb_tuned, hold_df.y_pred_lgb)  # tuned vs baseline
+# PROMOTE only if tuned beats baseline AND the improvement is STATISTICALLY SIGNIFICANT (DM stat<0 => tuned
+# lower squared error; p<0.05). Requiring significance makes the DM test load-bearing: a nominal-but-noisy RMSE
+# improvement REVERTS. (On the same rows rmse_tuned<rmse_base <=> dm_stat<0, so the RMSE clause is subsumed;
+# kept for readability.)
+lgb_promote = (rmse_lgb_tuned < rmse_lgb_base) and (dm_tuned_stat < 0) and (dm_tuned_p < 0.05)
+LGB_VERDICT = "PROMOTE tuned" if lgb_promote else "REVERT to baseline"
+_confounded = len(KEPT) > 0   # tuned model also carries kept features => features+tuning bundled in the verdict
+guardrail = {"rmse_base": round(rmse_lgb_base, 6), "rmse_tuned": round(rmse_lgb_tuned, 6),
+             "diracc_base": round(da_lgb_base, 4), "diracc_tuned": round(da_lgb_tuned, 4),
+             "dm_tuned_vs_base_stat": round(dm_tuned_stat, 4), "dm_tuned_vs_base_p": round(dm_tuned_p, 4),
+             "cv_mean_rmse": round(best.value, 6), "kept_features": KEPT,
+             "features_tuning_confounded": _confounded, "verdict": LGB_VERDICT}
+(MODELS / "lgb_tuning_guardrail.json").write_text(json.dumps(guardrail, indent=2))
+print(f"\n[GUARDRAIL] LightGBM  baseline: RMSE={rmse_lgb_base:.5f} DirAcc={da_lgb_base:.3f}  | "
+      f"tuned: RMSE={rmse_lgb_tuned:.5f} DirAcc={da_lgb_tuned:.3f}")
+print(f"[GUARDRAIL] tuned-vs-baseline DM stat={dm_tuned_stat:.3f} p={dm_tuned_p:.3f} (significant improvement required)  ->  {LGB_VERDICT}")
+if _confounded:
+    print(f"[GUARDRAIL] NOTE: tuned model also adds features {KEPT} -> verdict is the JOINT features+tuning effect.")
+else:
+    print("[GUARDRAIL] NOTE: ablation kept 0 candidates -> baseline and tuned use the SAME 39 features "
+          "(clean tuning-only comparison).")
+print("[GUARDRAIL] (both recorded regardless of verdict; CV motivated tuning, holdout decides -- no peek.)")
 
 # %% [markdown]
 # ### Long-only backtest with risk-adjusted metrics (illustrative — NOT investment advice)
@@ -831,6 +1205,10 @@ audit = {
     "diebold_mariano_done": np.isfinite(dm_arima[1]) and np.isfinite(dm_ho[1]),
     "lstm_attention_runs_smoke": (MODELS / "lstm_attention_smoke.keras").exists(),
     "lightgbm_trained": (MODELS / "lgbm_global.txt").exists() and (MODELS / "lgbm_global_final.txt").exists(),
+    "feature_ablation_done": (MODELS / "feature_ablation.csv").exists() and len(FEAT_MODEL) >= len(MODEL_FEATURES),
+    "lgb_optuna_tuned": (MODELS / "lgbm_best_params.json").exists() and (MODELS / "lgbm_optuna_study.pkl").exists(),
+    "tuned_vs_baseline_guardrail": (MODELS / "lgb_tuning_guardrail.json").exists()
+                            and "y_pred_lgb_tuned" in pd.read_parquet(PROC / "holdout_predictions.parquet").columns,
     "exogenous_features_used": sum(f.startswith(("vix", "tnx", "term", "dxy", "is_high")) for f in MODEL_FEATURES) >= 9,
     "ensemble_blend_defined": any("Ensemble" in s["model"] for s in val_scores),
     "val_comparison_saved": (MODELS / "val_scores.csv").exists(),

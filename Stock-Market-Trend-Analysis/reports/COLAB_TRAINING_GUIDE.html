@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>COLAB_TRAINING_GUIDE.md</title>
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+
+<style>
+/* https://github.com/microsoft/vscode/blob/master/extensions/markdown-language-features/media/markdown.css */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+	padding: 0 26px;
+	line-height: var(--vscode-markdown-line-height, 22px);
+	word-wrap: break-word;
+}
+
+#code-csp-warning {
+	position: fixed;
+	top: 0;
+	right: 0;
+	color: white;
+	margin: 16px;
+	text-align: center;
+	font-size: 12px;
+	font-family: sans-serif;
+	background-color:#444444;
+	cursor: pointer;
+	padding: 6px;
+	box-shadow: 1px 1px 1px rgba(0,0,0,.25);
+}
+
+#code-csp-warning:hover {
+	text-decoration: none;
+	background-color:#007acc;
+	box-shadow: 2px 2px 2px rgba(0,0,0,.25);
+}
+
+body.scrollBeyondLastLine {
+	margin-bottom: calc(100vh - 22px);
+}
+
+body.showEditorSelection .code-line {
+	position: relative;
+}
+
+body.showEditorSelection .code-active-line:before,
+body.showEditorSelection .code-line:hover:before {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	left: -12px;
+	height: 100%;
+}
+
+body.showEditorSelection li.code-active-line:before,
+body.showEditorSelection li.code-line:hover:before {
+	left: -30px;
+}
+
+.vscode-light.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.vscode-light.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.40);
+}
+
+.vscode-light.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-dark.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.vscode-dark.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.60);
+}
+
+.vscode-dark.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-high-contrast.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 160, 0, 0.7);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 160, 0, 1);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+img {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+a {
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+hr {
+	border: 0;
+	height: 2px;
+	border-bottom: 2px solid;
+}
+
+h1 {
+	padding-bottom: 0.3em;
+	line-height: 1.2;
+	border-bottom-width: 1px;
+	border-bottom-style: solid;
+}
+
+h1, h2, h3 {
+	font-weight: normal;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table > thead > tr > th {
+	text-align: left;
+	border-bottom: 1px solid;
+}
+
+table > thead > tr > th,
+table > thead > tr > td,
+table > tbody > tr > th,
+table > tbody > tr > td {
+	padding: 5px 10px;
+}
+
+table > tbody > tr + tr > td {
+	border-top: 1px solid;
+}
+
+blockquote {
+	margin: 0 7px 0 5px;
+	padding: 0 16px 0 10px;
+	border-left-width: 5px;
+	border-left-style: solid;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", "Courier New", monospace, "Droid Sans Fallback";
+	font-size: 1em;
+	line-height: 1.357em;
+}
+
+body.wordWrap pre {
+	white-space: pre-wrap;
+}
+
+pre:not(.hljs),
+pre.hljs code > div {
+	padding: 16px;
+	border-radius: 3px;
+	overflow: auto;
+}
+
+pre code {
+	color: var(--vscode-editor-foreground);
+	tab-size: 4;
+}
+
+/** Theming */
+
+.vscode-light pre {
+	background-color: rgba(220, 220, 220, 0.4);
+}
+
+.vscode-dark pre {
+	background-color: rgba(10, 10, 10, 0.4);
+}
+
+.vscode-high-contrast pre {
+	background-color: rgb(0, 0, 0);
+}
+
+.vscode-high-contrast h1 {
+	border-color: rgb(0, 0, 0);
+}
+
+.vscode-light table > thead > tr > th {
+	border-color: rgba(0, 0, 0, 0.69);
+}
+
+.vscode-dark table > thead > tr > th {
+	border-color: rgba(255, 255, 255, 0.69);
+}
+
+.vscode-light h1,
+.vscode-light hr,
+.vscode-light table > tbody > tr + tr > td {
+	border-color: rgba(0, 0, 0, 0.18);
+}
+
+.vscode-dark h1,
+.vscode-dark hr,
+.vscode-dark table > tbody > tr + tr > td {
+	border-color: rgba(255, 255, 255, 0.18);
+}
+
+</style>
+
+<style>
+/* Tomorrow Theme */
+/* http://jmblog.github.com/color-themes-for-google-code-highlightjs */
+/* Original theme - https://github.com/chriskempson/tomorrow-theme */
+
+/* Tomorrow Comment */
+.hljs-comment,
+.hljs-quote {
+	color: #8e908c;
+}
+
+/* Tomorrow Red */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-regexp,
+.hljs-deletion {
+	color: #c82829;
+}
+
+/* Tomorrow Orange */
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+	color: #f5871f;
+}
+
+/* Tomorrow Yellow */
+.hljs-attribute {
+	color: #eab700;
+}
+
+/* Tomorrow Green */
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+	color: #718c00;
+}
+
+/* Tomorrow Blue */
+.hljs-title,
+.hljs-section {
+	color: #4271ae;
+}
+
+/* Tomorrow Purple */
+.hljs-keyword,
+.hljs-selector-tag {
+	color: #8959a8;
+}
+
+.hljs {
+	display: block;
+	overflow-x: auto;
+	color: #4d4d4c;
+	padding: 0.5em;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}
+
+.hljs-strong {
+	font-weight: bold;
+}
+</style>
+
+<style>
+/*
+ * Markdown PDF CSS
+ */
+
+ body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+	padding: 0 12px;
+}
+
+pre {
+	background-color: #f8f8f8;
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre:not(.hljs) {
+	padding: 23px;
+	line-height: 19px;
+}
+
+blockquote {
+	background: rgba(127, 127, 127, 0.1);
+	border-color: rgba(0, 122, 204, 0.5);
+}
+
+.emoji {
+	height: 1.4em;
+}
+
+code {
+	font-size: 14px;
+	line-height: 19px;
+}
+
+/* for inline code */
+:not(pre):not(.hljs) > code {
+	color: #C9AE75; /* Change the old color so it seems less like an error */
+	font-size: inherit;
+}
+
+/* Page Break : use <div class="page"/> to insert page break
+-------------------------------------------------------- */
+.page {
+	page-break-after: always;
+}
+
+</style>
+
+<script src="https://unpkg.com/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')
+          ? 'dark'
+          : 'default'
+    });
+  </script>
+<h1 id="colab-training-guide--full-attention-lstm-m3">Colab Training Guide — Full Attention-LSTM (M3)</h1>
+<p>Run <code>notebooks/03_model_building.ipynb</code> on a Google Colab <strong>GPU</strong> to train the attention-LSTM for real
+(20 epochs + Optuna search) and regenerate the prediction artifacts. The notebook auto-detects the GPU — <strong>you do
+not edit any epoch/config value by hand</strong>.</p>
+<blockquote>
+<p>The classical models (ARIMA, GJR-GARCH, LightGBM) train in seconds on CPU and their numbers don't change on
+Colab. Only the LSTM needs the GPU.</p>
+</blockquote>
+<hr>
+<h2 id="%E2%AD%90-easy-start-beginner--5-minutes-2-files-6-steps">⭐ EASY START (beginner — ~5 minutes, 2 files, 6 steps)</h2>
+<p>You only need <strong>2 files from your project folder</strong> (<code>Stock-Market-Trend-Analysis/</code>):</p>
+<ol>
+<li><code>notebooks/03_model_building.ipynb</code>  ← the notebook</li>
+<li><code>Stock-Market-Colab-Data.zip</code>  ← the data (already made for you, in the project root)</li>
+</ol>
+<p><strong>Step 1 — Open Colab.</strong> Go to <a href="https://colab.research.google.com">https://colab.research.google.com</a> → sign in with Google → <strong>File → Upload
+notebook</strong> → pick <code>03_model_building.ipynb</code>. It opens.</p>
+<p><strong>Step 2 — Turn on the free GPU.</strong> Menu <strong>Runtime → Change runtime type → Hardware accelerator: T4 GPU → Save.</strong>
+(This is what makes it train for real instead of a 2-epoch test.)</p>
+<p><strong>Step 3 — Add ONE setup cell at the very top.</strong> Click the notebook's first cell, press <strong><code>+ Code</code></strong> to add a
+cell <em>above</em> everything, and paste this in. It installs the libraries and loads your data:</p>
+<pre class="hljs"><code><div><span class="hljs-comment"># === SETUP — run this FIRST ===</span>
+!pip -q install lightgbm optuna==<span class="hljs-number">4.1</span><span class="hljs-number">.0</span> arch      <span class="hljs-comment"># tensorflow already on Colab GPU</span>
+<span class="hljs-keyword">import</span> os, zipfile
+<span class="hljs-keyword">from</span> google.colab <span class="hljs-keyword">import</span> files
+os.makedirs(<span class="hljs-string">"/content/Stock-Market-Trend-Analysis/data/processed"</span>, exist_ok=<span class="hljs-literal">True</span>)
+print(<span class="hljs-string">"Click 'Choose Files' and pick Stock-Market-Colab-Data.zip ..."</span>)
+up = files.upload()                               <span class="hljs-comment"># &lt;- a button appears; pick the zip</span>
+z = [k <span class="hljs-keyword">for</span> k <span class="hljs-keyword">in</span> up <span class="hljs-keyword">if</span> k.endswith(<span class="hljs-string">".zip"</span>)][<span class="hljs-number">0</span>]
+zipfile.ZipFile(z).extractall(<span class="hljs-string">"/content/Stock-Market-Trend-Analysis/data/processed"</span>)
+print(<span class="hljs-string">"Ready:"</span>, os.listdir(<span class="hljs-string">"/content/Stock-Market-Trend-Analysis/data/processed"</span>))
+</div></code></pre>
+<p><strong>Step 4 — Run everything.</strong> Menu <strong>Runtime → Run all.</strong> When the setup cell shows a <strong>&quot;Choose Files&quot;</strong> button,
+click it and pick <code>Stock-Market-Colab-Data.zip</code>. Then it keeps going on its own (~2–5 min on GPU).</p>
+<p><strong>Step 5 — Check it trained for real.</strong> Near the LSTM cell, the output must say <strong><code>FULL_TRAIN=True</code></strong> and
+<code>LSTM+Attention (FINAL)</code> (not &quot;SMOKE&quot;). If it says <code>False</code>, your GPU isn't on — redo Step 2 and Run all again.</p>
+<p><strong>Step 6 — Download your results.</strong> Add a new cell at the <strong>bottom</strong> and run it:</p>
+<pre class="hljs"><code><div><span class="hljs-keyword">import</span> shutil
+<span class="hljs-keyword">from</span> google.colab <span class="hljs-keyword">import</span> files
+root = <span class="hljs-string">"/content/Stock-Market-Trend-Analysis"</span>
+shutil.make_archive(<span class="hljs-string">"/content/results"</span>, <span class="hljs-string">"zip"</span>, root, base_dir=<span class="hljs-string">"models"</span>)
+shutil.make_archive(<span class="hljs-string">"/content/preds"</span>,   <span class="hljs-string">"zip"</span>, root, base_dir=<span class="hljs-string">"data/processed"</span>)
+files.download(<span class="hljs-string">"/content/results.zip"</span>)            <span class="hljs-comment"># trained model + tuned params + metrics</span>
+files.download(<span class="hljs-string">"/content/preds.zip"</span>)              <span class="hljs-comment"># holdout_predictions.parquet (LSTM + ensemble filled)</span>
+</div></code></pre>
+<p>Unzip those back into your local project (overwrite <code>models/</code> and <code>data/processed/</code>) and the LSTM + ensemble
+holdout numbers are now real. Done.</p>
+<blockquote>
+<p>Common snag: if a cell errors with &quot;file not found&quot;, the setup cell (Step 3) didn't run first — click it, run
+it alone (Shift+Enter), pick the zip, then <strong>Runtime → Run all</strong> again.</p>
+</blockquote>
+<p>The rest of this document is the detailed reference (paths, verification, what each artifact is).</p>
+<hr>
+<h2 id="0-set-the-runtime-to-gpu">0. Set the runtime to GPU</h2>
+<p>Colab menu → <strong>Runtime → Change runtime type → Hardware accelerator: T4 GPU → Save</strong>.
+(Free T4 trains this model in ~1–2 min; CPU takes ~15–20 min but still works.)</p>
+<h2 id="1-get-the-data--notebook-onto-colab">1. Get the data + notebook onto Colab</h2>
+<p>The notebook expects everything under <code>/content/Stock-Market-Trend-Analysis/</code>. Pick <strong>one</strong>:</p>
+<p><strong>Option A — clone from GitHub</strong> (if you pushed the repo). First Colab cell:</p>
+<pre class="hljs"><code><div>!git clone https://github.com/&lt;you&gt;/Stock-Market-Trend-Analysis.git /content/Stock-Market-Trend-Analysis
+</div></code></pre>
+<p><strong>Option B — upload the files manually</strong> (no GitHub needed). Upload the notebook via <strong>File → Upload notebook</strong>,
+then in the first cell create the folders and upload the 4 required data files:</p>
+<pre class="hljs"><code><div><span class="hljs-keyword">import</span> os
+<span class="hljs-keyword">from</span> google.colab <span class="hljs-keyword">import</span> files
+os.makedirs(<span class="hljs-string">"/content/Stock-Market-Trend-Analysis/data/processed"</span>, exist_ok=<span class="hljs-literal">True</span>)
+os.makedirs(<span class="hljs-string">"/content/Stock-Market-Trend-Analysis/data/raw"</span>, exist_ok=<span class="hljs-literal">True</span>)
+os.chdir(<span class="hljs-string">"/content/Stock-Market-Trend-Analysis/data/processed"</span>)
+files.upload()   <span class="hljs-comment"># pick: train_fe.parquet, val_fe.parquet, holdout_fe.parquet, feature_roles.json</span>
+os.chdir(<span class="hljs-string">"/content"</span>)
+</div></code></pre>
+<p><strong>Required files</strong> (from your local <code>data/processed/</code>):
+<code>train_fe.parquet</code>, <code>val_fe.parquet</code>, <code>holdout_fe.parquet</code>, <code>feature_roles.json</code>.
+(The <code>data/raw/*.csv</code> snapshots are <strong>not</strong> needed for M3 — they're only for M1.)</p>
+<p><strong>Path handling:</strong> you don't set any paths yourself. The notebook's setup cell detects Colab and sets
+<code>ROOT = /content/Stock-Market-Trend-Analysis</code>, then reads <code>ROOT/data/processed/*.parquet</code>. As long as the files
+sit there (Option A or B), there are no path errors. It also <code>pip install</code>s <code>requirements.txt</code> if present, else
+<code>arch</code>, <code>tensorflow</code>, <code>lightgbm</code>.</p>
+<h2 id="2-full-20-epoch-gpu-training--lstm-optuna-search--automatic">2. Full 20-epoch GPU training + LSTM Optuna search — automatic</h2>
+<p>There is <strong>no manual epoch change</strong>. On a GPU runtime <code>FULL_TRAIN</code> becomes <strong>True</strong> by itself, which does two
+things (both gated behind the flag, so local CPU stays a 2-epoch smoke):</p>
+<ol>
+<li>Runs a <strong>small Optuna search</strong> (15 trials) over an inner purged time-split (last ~250 train dates as
+inner-val; scaler refit on inner-train only) tuning <code>units / dropout / learning_rate / batch_size / layers / bidirectional</code>. Prints <code>LSTM best config (Optuna): {...}</code> and saves <code>models/lstm_best_params.json</code>.</li>
+<li>Refits the best config for <strong>20 epochs</strong> with early stopping and fills the holdout <code>y_pred_lstm</code>.</li>
+</ol>
+<p>Just <strong>Runtime → Run all</strong>. Confirm the print near the LSTM cell says <code>FULL_TRAIN=True</code>.</p>
+<blockquote>
+<p>The LightGBM <strong>Optuna tuning (§5b-tune, 60 trials on the purged walk-forward CV)</strong> runs on CPU too, so it
+executes locally <em>and</em> on Colab — its numbers don't need the GPU. Only the LSTM search benefits from it.</p>
+</blockquote>
+<p>(If you're on a CPU runtime but still want the full run, add a cell <code>import os; os.environ[&quot;LSTM_FULL_TRAIN&quot;]=&quot;1&quot;</code>
+<strong>before</strong> the LSTM cell.)</p>
+<h2 id="3-verify-attention--lightgbm--ensemble-are-running">3. Verify attention + LightGBM + ensemble are running</h2>
+<p>Check these in the cell outputs, in order:</p>
+<ol>
+<li><strong>GPU active</strong> — run once: <code>import tensorflow as tf; print(tf.config.list_physical_devices(&quot;GPU&quot;))</code> → non-empty.</li>
+<li><strong>Attention layer present</strong> — after the LSTM builds, run <code>lstm.summary()</code>. You must see a
+<code>Softmax</code>, a <code>Multiply</code>, and a <code>Lambda</code>/reduce-sum layer (the additive attention pooling over the 60-day
+window). If those are missing, <code>attention=True</code> didn't take.</li>
+<li><strong>Full training, not smoke</strong> — the LSTM print shows <code>FULL_TRAIN=True  LSTM+Attention (FINAL)</code> and ~20 epoch
+lines (early stopping may end sooner). The model row appears in the §6 comparison table (smoke never does).</li>
+<li><strong>LightGBM ran + used exogenous data</strong> — §5b prints <code>exogenous features in LightGBM top-15: [...]</code> (expect
+VIX/yield/dollar names) and saves <code>reports/figures/M3_fig_lgb_importance.png</code>.</li>
+<li><strong>Ensemble used the real LSTM</strong> — §5c prints <code>Ensemble GARCH+LSTM (REAL LSTM): {RMSE.., DirAcc..}</code> (now on
+the return scale, fully scored — not &quot;illustrative, LSTM=smoke&quot;). The old LGB+LSTM z-blend prints below it
+as the <em>rejected</em> baseline.</li>
+<li><strong>Holdout LSTM + ensemble filled</strong> — §8 prints <code>Pooled holdout LSTM+Attention: ...</code> and <code>Pooled holdout Ensemble GARCH+LSTM: ...</code>, and <code>holdout_predictions.parquet</code> has non-null <code>y_pred_lstm</code> + <code>y_pred_ens</code>
+(first 60/ticker stay NaN by design). The self-audit prints <code>All N M3 self-audit checks passed</code> (the count
+auto-updates). The <code>[GUARDRAIL]</code> lines show the tuned-vs-baseline LightGBM PROMOTE/REVERT verdict.</li>
+</ol>
+<h2 id="4-extract--download-the-artifacts">4. Extract + download the artifacts</h2>
+<p>Everything is written under <code>ROOT/models/</code>, <code>ROOT/data/processed/</code>, <code>ROOT/reports/figures/</code>. Zip and download:</p>
+<pre class="hljs"><code><div><span class="hljs-keyword">import</span> shutil
+<span class="hljs-keyword">from</span> google.colab <span class="hljs-keyword">import</span> files
+root = <span class="hljs-string">"/content/Stock-Market-Trend-Analysis"</span>
+shutil.make_archive(<span class="hljs-string">"/content/m3_trained"</span>, <span class="hljs-string">"zip"</span>, root, base_dir=<span class="hljs-string">"models"</span>)           <span class="hljs-comment"># models/</span>
+shutil.make_archive(<span class="hljs-string">"/content/m3_preds"</span>, <span class="hljs-string">"zip"</span>, root, base_dir=<span class="hljs-string">"data/processed"</span>)     <span class="hljs-comment"># incl. holdout_predictions.parquet</span>
+shutil.make_archive(<span class="hljs-string">"/content/m3_figs"</span>, <span class="hljs-string">"zip"</span>, root, base_dir=<span class="hljs-string">"reports/figures"</span>)     <span class="hljs-comment"># M3 figures</span>
+<span class="hljs-keyword">for</span> z <span class="hljs-keyword">in</span> (<span class="hljs-string">"m3_trained"</span>, <span class="hljs-string">"m3_preds"</span>, <span class="hljs-string">"m3_figs"</span>):
+    files.download(<span class="hljs-string">f"/content/<span class="hljs-subst">{z}</span>.zip"</span>)
+</div></code></pre>
+<p><strong>What you get</strong> (the things that update your M3 report):</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>models/lstm_attention_final.keras</code></td>
+<td>the trained attention-LSTM weights</td>
+</tr>
+<tr>
+<td><code>models/lstm_best_params.json</code></td>
+<td>the Optuna-selected LSTM config + inner-val RMSE</td>
+</tr>
+<tr>
+<td><code>models/lstm_val_metrics.json</code></td>
+<td>real LSTM <strong>val</strong> RMSE / MAE / DirAcc / DirAcc_p</td>
+</tr>
+<tr>
+<td><code>models/lgbm_best_params.json</code>, <code>models/lgbm_optuna_study.pkl</code></td>
+<td>tuned LightGBM params + CV summary + the study</td>
+</tr>
+<tr>
+<td><code>models/lgb_tuning_guardrail.json</code></td>
+<td>baseline-vs-tuned holdout RMSE/DirAcc/DM + PROMOTE/REVERT verdict</td>
+</tr>
+<tr>
+<td><code>models/feature_ablation.csv</code></td>
+<td>candidate-feature MI + walk-forward permutation verdicts (KEEP/reject)</td>
+</tr>
+<tr>
+<td><code>models/val_scores.csv</code></td>
+<td>the full val comparison table incl. real LSTM, tuned LightGBM, GARCH+LSTM ensemble rows</td>
+</tr>
+<tr>
+<td><code>data/processed/holdout_predictions.parquet</code></td>
+<td>now has <code>y_pred_lstm</code> + <code>y_pred_ens</code> filled (+ <code>y_pred_arima</code>, <code>y_pred_garch</code>, <code>y_pred_lgb</code>, <code>y_pred_lgb_tuned</code>)</td>
+</tr>
+<tr>
+<td>console line <code>Pooled holdout LSTM+Attention: RMSE=… DirAcc=… (binomial p=…)</code></td>
+<td>the real LSTM <strong>holdout</strong> metrics</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Updating the M3 report:</strong> replace the placeholder LSTM row in <code>reports/milestones/M3.md</code> §6 (val) and §8
+(holdout) with the numbers from <code>lstm_val_metrics.json</code> and the <code>Pooled holdout LSTM+Attention</code> print. RMSE and
+directional accuracy are already computed and printed — copy them straight in.</p>
+<blockquote>
+<p><strong>Reproducibility note:</strong> GPU training has minor run-to-run nondeterminism (seeds pin the graph, not every
+GPU op). Expect the LSTM numbers to move by a small amount between runs; that is normal and doesn't change the
+conclusion. A local CPU 20-epoch run of this exact path gives LSTM holdout DirAcc ≈ 0.542 (binomial p ≈ 0.005)
+with RMSE slightly worse than naive — a weak, statistically-significant-but-uneconomic directional edge, same
+pattern as GJR-GARCH. Don't expect the GPU run to beat the naive baseline economically; the EMH ceiling holds.</p>
+</blockquote>
+
+</body>
+</html>
