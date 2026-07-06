@@ -159,13 +159,16 @@ Log. Keep this discipline for M4.
   tuning on a purged walk-forward CV (chose 2 trees) **fixed the overfit** — tuned went from worse-than-naive
   (0.02168) to naive-tying (0.02107), `PROMOTE`d over baseline (DM p=0.0025, significant). Ensemble rebuilt on the
   return scale (GARCH+LSTM, honest shrinkage framing). No model beats naive on RMSE — EMH ceiling intact; the
-  54.2% directional figure is the shared lag-1 microstructure, cost-erased, not new skill. 22/22 structural
+  54.2% directional figure is the shared upward drift (both models predict up ~100% of days), cost-erased, not new skill. 22/22 structural
   self-audit checks pass.
 - **Attention-LSTM trained on Colab GPU (2026-07-06)** via `FULL_TRAIN` (Optuna picked units=64/2-layer/dropout
   0.26; guide in `reports/COLAB_TRAINING_GUIDE.md`). **Real holdout DirAcc 0.491 (p=0.574 — coin flip); the
   earlier 0.542 did NOT reproduce** → the LSTM edge was run-dependent noise. Ensemble 0.512 (coin flip). Only
   GJR-GARCH (0.543) and tuned LightGBM (0.542), both p=0.002, keep a reproducible edge. EMH ceiling reinforced.
-- **Outstanding**: M4 (Evaluation & Presentation) not started. See `Plans/progress_checklist.md` for the tracker.
+- **M4 (Evaluation & Presentation) done** (2026-07-06, multi-agent audited): `notebooks/04_*`, `reports/milestones/M4.md`,
+  4 M4 figures, and a 12-slide light-finance HTML deck (`reports/M4_presentation.html`, also published as a claude.ai
+  Artifact). Honest headline: no model beats naive; the one significant directional edge is market drift, not skill.
+- **Outstanding**: M5 (real web deployment, e.g. Streamlit) is optional/next, on user request. See `Plans/progress_checklist.md`.
 
 ## How to run (local)
 

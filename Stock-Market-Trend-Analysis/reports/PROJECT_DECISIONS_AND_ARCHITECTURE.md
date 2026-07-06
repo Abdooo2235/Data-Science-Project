@@ -2,7 +2,7 @@
 
 **Project:** Stock Market Trend Analysis — next-day log-return forecasting
 **Tickers:** `^GSPC`, `AAPL`, `AMZN`, `NVDA` · **Window:** 2016-05-23 → 2026-05-20 (pinned, 2,513 rows/ticker)
-**Owner:** Ali Agela · **Seed:** 42 · **Status at writing:** M1 + M2 + M3 (core) complete, all multi-agent-audited; M4 not started; LSTM full-train pending Colab
+**Owner:** Ali Agela · **Seed:** 42 · **Status:** M1 + M2 + M3 + M3.5 + M4 complete, all multi-agent-audited. The attention LSTM was trained on a Colab GPU (2026-07-06); its predictions are in `holdout_predictions.parquet`. The exec-summary table below and the whole project are current as of the M4 evaluation.
 **Sources:** `Plans/progress_checklist.md` (Decisions Log), `reports/milestones/M1–M3.md`, `Plans/milestone1–4_*.md`, the three notebooks, `data/processed/feature_roles.json`, `feature_dictionary.md`, `data/raw/snapshot_hashes.json`
 
 ---
@@ -15,12 +15,14 @@ The honest headline result is that **no model demonstrates economically usable o
 
 | Model | Holdout RMSE | vs naive (Diebold-Mariano p) | DirAcc | DirAcc p |
 |---|---|---|---|---|
-| `naive_zero` | 0.02109 | — | n/a | — |
+| `naive_zero` | 0.02109 | n/a | n/a | n/a |
 | ARIMA | **0.02107** | 0.783 (tie) | 0.514 | 0.294 (coin flip) |
 | GJR-GARCH-t (mean) | 0.02106 | 0.589 (tie) | **0.543** | **0.002 (significant)** |
-| LightGBM (+9 exogenous) | 0.02165 | **0.003 (WORSE)** | 0.499 | 0.979 (coin flip) |
+| LightGBM (baseline, un-tuned) | 0.02168 | **0.003 (WORSE)** | 0.483 | 0.226 (coin flip) |
+| LightGBM (tuned, M3.5) | **0.02107** | 0.533 (tie) | **0.542** | **0.002 (significant)** |
+| LSTM+Attention (real GPU) | 0.02031 | **0.004 (WORSE)** | 0.491 | 0.574 (coin flip) |
 
-ARIMA statistically ties the naive baseline on RMSE (DM p = 0.78) and is a directional coin flip (51.4%, p = 0.29). LightGBM, given nine exogenous VIX/yield/dollar features, **overfits**: its holdout RMSE is significantly *worse* than naive (DM p = 0.003) and its direction is exactly chance (0.499). The one survivor is GJR-GARCH's mean forecast, which retains a **weak but statistically significant directional edge out-of-sample (54.3%, binomial p = 0.002)** — yet it still only ties naive on RMSE (DM p = 0.59), rides the same negative lag-1 mean-reversion microstructure the EDA flagged, and is **erased by transaction costs** (an illustrative ^GSPC long/cash strategy switches position 175 times and collapses to Sharpe 0.33 at 10 bps/switch, below buy-and-hold's 0.99, with daily returns not significantly positive at t = 1.38, p = 0.168). Net: the efficient-market-hypothesis (EMH) ceiling holds — a whisker of statistically-real but uneconomic signal, no usable skill. This "negative" result is treated as the deliverable, not a failure.
+Updated after the M3.5 hardening pass and the real Colab GPU run (2026-07-06). ARIMA ties naive on RMSE and is a directional coin flip. The un-tuned LightGBM overfits (holdout worse than naive, DM p = 0.003). The M3.5 Optuna tuning on a purged walk-forward CV fixed that overfit: the tuned LightGBM was promoted because it went from worse-than-naive to naive-tying (DM vs baseline p = 0.0025). Two models keep a statistically significant directional edge, GJR-GARCH at 0.543 and the tuned LightGBM at 0.542 (both p = 0.002), but both predict up on 99 to 100 percent of days, so that accuracy is the holdout up-day rate (0.542), the market's drift in a calm period rather than timing. The attention LSTM edge did not reproduce on the real GPU run (0.542 on an earlier forced-CPU run, 0.491 on the GPU run, a coin flip). No model beats naive on RMSE, and the one edge that survives is drift that transaction costs erase (an illustrative ^GSPC timer switches 174 times and collapses to Sharpe 0.33 at 10 bps, below buy-and-hold's 0.99, daily returns not significant at t = 1.38, p = 0.168). The efficient-market ceiling holds, and this negative result is the deliverable. See `reports/milestones/M4.md` for the full evaluation.
 
 ---
 
@@ -109,6 +111,6 @@ Taken together, these are consistent, textbook **EMH evidence**: next-day *mean*
 
 ## 6. Limitations & outstanding work
 
-- **LSTM not fully trained.** Only a 2-epoch CPU smoke-test has run locally (RMSE 0.132 is plumbing, not a result). The full 2-layer/64-unit/20-epoch attention-LSTM config awaits a Colab GPU run — so the "ARIMA + GARCH vs LSTM" comparison currently has only its classical arm.
-- **M4 not started** (0/11): final performance table vs a perfect-foresight bound, top-10-worst error narratives, confusion matrix, ethics/misuse audit with the explicit "not investment advice" disclaimer, and the 10–12-slide deck remain.
+- **LSTM trained on Colab GPU (2026-07-06).** The full 2-layer/64-unit/20-epoch attention-LSTM ran; its holdout directional accuracy is 0.491 (p = 0.574, a coin flip), and the earlier forced-CPU 0.542 did not reproduce. So the deep arm exists and its honest verdict is in.
+- **M4 complete** (11/11): final performance table vs a perfect-foresight bound, top-10-worst error narratives, confusion matrix, ethics/misuse audit with the explicit "not investment advice" disclaimer, and a 12-slide HTML deck are all delivered. See `reports/milestones/M4.md` and `reports/M4_presentation.html`.
 - **Finance-specific limits.** The EMH bounds predictability from prices alone; the holdout is a **single calm regime** (2025–26, lower vol than train), so no claim generalizes across bull/bear; transaction costs erase the marginal GARCH edge; the four tickers are **survivors** (survivorship bias) and `^GSPC` is not directly tradeable; daily granularity hides intraday signal; multiple comparisons (4 tickers × orders × models) mean any single "win" should be read skeptically. The GARCH variance was scored against a noisy squared-return proxy; M4 could add a range-based realized variance and a VaR/Kupiec exceedance backtest.

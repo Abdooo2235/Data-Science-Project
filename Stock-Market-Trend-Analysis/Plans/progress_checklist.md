@@ -16,16 +16,16 @@
 |---|---|
 | Owner | Ali Agela |
 | Start date | 2026-05-21 |
-| Current week (1–14) | 6 |
-| Current milestone | M3 (M1+M2 complete) |
-| Last updated | 2026-05-21 (M1 complete) |
+| Current week (1–14) | 13 |
+| Current milestone | M4 done (M1+M2+M3+M3.5 complete); M5 deployment optional/next |
+| Last updated | 2026-07-06 (M4 complete, multi-agent audited) |
 
 ## Overall progress
 
 - [x] **Milestone 1 — Data Collection & Preprocessing** (Week 6) — 13 / 13 (v3 multi-agent audit 2026-06-17: 19/19 self-audit PASS; v2 was 12/12, v1 10/10)
 - [x] **Milestone 2 — Exploratory Data Analysis** (Week 9) — 11 / 11 (2026-06-17: multi-agent reviewed + fixed → 18 figures, 5 hypotheses, 13/13 self-audit PASS)
 - [~] **Milestone 3 — Model Building (ARIMA+GARCH vs LSTM)** (Week 11) — 12 / 13 (core done + multi-agent-audited 2026-06-17, 15/15 self-audit; LSTM full-train pending Colab)
-- [ ] **Milestone 4 — Evaluation & Presentation** (Week 13) — 0 / 11
+- [x] **Milestone 4 — Evaluation & Presentation** (Week 13) — 11 / 11 (2026-07-06: 12/12 self-audit PASS; M4.md + notebook 04 + 4 figures + 12-slide HTML deck published as an Artifact; multi-agent audited)
 
 ---
 
@@ -82,34 +82,49 @@
 - [x] Leakage assertions pass (agent-verified: split order + scaler train-only + target not in features + GARCH last_obs)
 - [x] `reports/milestones/M3.md` complete — **honest EMH write-up: no significant out-of-sample skill**
 - [x] **Audit fixes applied:** off-by-one one-step alignment (BLOCKER), BIC order selection, binomial+Diebold-Mariano significance, GARCH QLIKE/MZ + std-resid LB, GARCH pkls persisted, error-by-ticker/month figs, real audit checks (15/15)
-- [x] **LSTM full training done** (FULL_TRAIN flag auto-on Colab GPU; 20-epoch attention; CPU-verified locally): val DirAcc 0.539 (p=0.036), holdout DirAcc 0.542 (p=0.005) — weak-significant like GARCH, RMSE worse than naive. Artifacts: lstm_attention_final.keras, lstm_val_metrics.json, y_pred_lstm filled. Guide: reports/COLAB_TRAINING_GUIDE.md
+- [x] **LSTM full training done** (FULL_TRAIN flag auto-on Colab GPU; 20-epoch attention + Optuna). Real GPU holdout DirAcc **0.491 (p=0.574, coin flip)**, RMSE worse than naive — the earlier forced-CPU 0.542 (p=0.005) did NOT reproduce, so the LSTM edge was run-dependent noise. Artifacts: lstm_attention_final.keras, lstm_best_params.json, lstm_val_metrics.json, y_pred_lstm filled. Guide: reports/COLAB_TRAINING_GUIDE.md
 - [x] **Enhancement pass (2026-06-17):** +9 exogenous features (VIX/yields/dollar) in M1 (MODEL_FEATURES 30→39); LightGBM tabular; attention layer on LSTM; z-scored ensemble. M1 19/19, M3 19/19, multi-agent reviewed
 - [x] **Enhancement finding (honest):** exogenous data IS used (8/15 LightGBM top importances) + lifts val DirAcc to 0.539 (p=0.015), but LightGBM OVERFITS holdout (RMSE 0.02165 > naive 0.02109, DM p=0.003; DirAcc 0.499). Confirms EMH ceiling — no OOS lift
 - [x] **GARCH re-tested OOS (agent fix):** GJR-GARCH-mean holdout DirAcc 0.543 binomial p=0.002 (weak but significant) — the one surviving directional signal; ties naive on RMSE (DM p=0.59) + uneconomic after costs. holdout_predictions gains y_pred_garch
 - [x] **Naming fix (agent):** "EGARCH" mislabel corrected to GJR-GARCH (o=1) everywhere; VIX release-timing wording softened; LightGBM noted deliberately un-tuned
 
-## Milestone 4 — Evaluation & Presentation  *(status: ☐)*
+## Milestone 4 — Evaluation & Presentation  *(status: x — done, multi-agent audited 2026-07-06)*
 
 **File:** `milestone4_evaluation_presentation.md`  **Reads:** holdout predictions + all earlier reports.
 
-- [ ] Notebook `04_evaluation_presentation.ipynb` runs top-to-bottom with seed=42
-- [ ] Final performance table: ARIMA + LSTM vs all baselines + perfect-foresight upper bound
-- [ ] Top-10 worst forecasts table with narrative explanations (regime / earnings / news)
-- [ ] Error-distribution histogram + error-by-month plot + directional confusion matrix
-- [ ] ≥ 5 named limitations specific to finance (EMH, regime shifts, black swans, ...)
-- [ ] Misuse audit: explicit "not investment advice" disclaimer in `M4.md` + on slide 1
-- [ ] Cumulative-return backtest with assumptions + disclaimer
-- [ ] Data-protection note (what changes with real broker data)
-- [ ] Reproducibility verified: fresh venv → `jupyter execute` all 4 notebooks end-to-end
-- [ ] Pinned `requirements.txt` + updated `README.md` reproduce section
-- [ ] Presentation deck `reports/M4_presentation.pptx` 10–12 slides with speaker notes
-- [ ] Journey narrative (300–500 words) at top of `reports/milestones/M4.md`
+- [x] Notebook `04_evaluation_presentation.py` (+ `.ipynb`) runs top-to-bottom with seed=42; 12/12 self-audit PASS
+- [x] Final performance table: all 6 models vs naive + perfect-foresight gap-closure (no model beats naive; gap-closure ~0)
+- [x] Top-10 worst forecasts table with narrative (DeepSeek shock, April tariff crash/rebound, earnings) → `models/m4_top10_worst.csv`
+- [x] Error-distribution histogram + error-by-month plot + directional confusion matrix (M4_fig_err_dist/err_by_month/confusion)
+- [x] 7 named finance-specific limitations (EMH, regime, black swans, calm holdout, survivorship, daily granularity, multiple comparisons)
+- [x] Misuse audit: "not investment advice" disclaimer in `M4.md` header + section 5b + deck slide 1
+- [x] Cumulative-return backtest with cost sensitivity + disclaimer (promoted model = buy-and-hold; ARIMA timer dies at 10 bps) → M4_fig_backtest_cum
+- [x] Data-protection note (Yahoo public vs broker order flow: GDPR/CCPA, FINRA, MiFID II) — M4.md section 5d
+- [x] Reproducibility documented: fresh venv → run 01-04 `.py`; Colab GPU step for the LSTM noted
+- [x] Pinned `requirements.txt` + updated `README.md` reproduce section (all 4 notebooks)
+- [x] Presentation deck `reports/M4_presentation.html` (12 slides + speaker notes, light clean-finance theme) + published claude.ai Artifact
+- [x] Journey narrative (453 words) at top of `reports/milestones/M4.md`
+
+**M4 key finding (honest):** no model beats naive on RMSE. The two "significant" directional edges (GJR-GARCH 0.543, tuned-LightGBM 0.542, p=0.002) both predict up 99-100% of days = the up-day rate 0.542 = market drift, not timing. The confusion matrix shows the promoted model never predicts a down day. The backtest of the promoted model is literally buy-and-hold. EMH ceiling holds, measured carefully.
 
 ---
 
-## Current blocker
+## Decisions log — M4 (2026-07-06)
 
-> M1 + M2 + M3 (+ enhancement pass) complete, all multi-agent-audited. M3 used ARIMA + GJR-GARCH(asymmetric) per ticker + global LSTM (Colab) + LightGBM + exogenous features. Next: M4 evaluation & presentation. LSTM full-train pending Colab. No blockers.
+- `2026-07-06 | M4 | Built notebook 04 (final performance + error analysis + backtest) + M4.md (journey/limits/ethics) + a 12-slide light clean-finance HTML deck (frontend-slides) published as a claude.ai Artifact | Rubric wants the journey question->data->model->insight->limitations and an ethics audit. All copy run through the humanizer skill (no em-dashes/emojis). Deck theme user-chosen. 12/12 self-audit PASS`
+- `2026-07-06 | M4 finding | The surviving directional edge is market drift, not skill | Both p=0.002 "edges" (GARCH, tuned-LGB) predict up 99-100% of days; DirAcc 0.542 == holdout up-day frequency. Confusion matrix: promoted model never predicts down. Backtest of promoted model == buy-and-hold. No tradeable timing alpha; ARIMA timer (174 switches) edges B&H at 0 cost but dies at 10 bps. Strengthens the EMH conclusion`
+- `2026-07-06 | M4 | Refreshed PROJECT_DECISIONS_AND_ARCHITECTURE.md holdout table + README to canonical M3.md §8 numbers | The architecture doc was one revision stale (missing tuned-LightGBM + real-GPU LSTM). Now consistent across M3.md, M4.md, README, and the deck`
+- `2026-07-06 | M4-audit | 3 adversarial subagents (Model QA + Investment Researcher + Data Engineer) reviewed M4; fixes applied | Verdict: honest, would pass buy-side review, no blockers. Fixes: (1) DE - self-audit crashed on a CPU-only reproduction (LSTM/ens NaN -> 5 models); gated the count on LSTM_READY. (2) IR - "lag-1 microstructure" contradicted the drift finding (lag-1 is negative/mean-reversion; survivors are always-up drift) -> corrected to unconditional drift in M4.md + CLAUDE.md. (3) QA/DE - stale MAE column in M4.md (4 cells) -> fixed to CSV values. (4) IR - added the honest directional test vs the up-day base rate: GARCH p=0.978, tuned-LGB p=1.000 (no skill beyond drift). (5) added t-test (t=1.38 p=0.168) + Sharpe (rf=0) to notebook 04. (6) deck - green "win" rows recolored to a neutral "up-only, drift" tag; disclaimer made verbatim. (7) doc consistency - cleared stale "M4 not started"/LSTM-0.542 text in arch doc, checklist, CLAUDE.md, README tree. 12/12 self-audit still PASS`
+
+---
+
+## Milestone 5 (next, on request) — Real deployment
+
+> A live web app (Streamlit or similar) that loads the trained models + `holdout_predictions.parquet`, lets a user pick a ticker and date and see the forecast versus the actual next-day return, with the not-investment-advice disclaimer front and center and the honest accuracy shown. Not built yet; scoped for when the user asks. Not part of the graded course milestones.
+
+## Status
+
+> M1 + M2 + M3 + M3.5 + M4 complete, all multi-agent-audited. Full pipeline reproducible from committed snapshots (LSTM on Colab GPU). Honest headline: no economically usable out-of-sample skill, the EMH ceiling holds. All four milestone reports + the presentation deck are done. No blockers.
 
 ## Decisions log
 

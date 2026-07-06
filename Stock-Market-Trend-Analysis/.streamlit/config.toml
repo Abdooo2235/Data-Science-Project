@@ -1,0 +1,11 @@
+# M5 deployment theme: same light clean-finance palette as the M4 deck.
+[theme]
+base = "light"
+primaryColor = "#1b4f8a"
+backgroundColor = "#f4f7fa"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#0f2740"
+font = "sans serif"
+
+[server]
+headless = true
