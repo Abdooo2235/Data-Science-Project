@@ -17,8 +17,8 @@
 | Owner | Ali Agela |
 | Start date | 2026-05-21 |
 | Current week (1–14) | 13 |
-| Current milestone | M5 done (M1+M2+M3+M3.5+M4+M5 complete) |
-| Last updated | 2026-07-06 (M5 deployment complete, multi-agent audited) |
+| Current milestone | M3.6 done (M1+M2+M3+M3.5+M4+M5+M3.6 complete) |
+| Last updated | 2026-07-07 (M3.6 volatility forecasting complete, multi-agent audited) |
 
 ## Overall progress
 
@@ -154,7 +154,7 @@
 
 ## Status
 
-> M1 + M2 + M3 + M3.5 + M4 + M5 complete, all multi-agent-audited. Full pipeline reproducible from committed snapshots (LSTM on Colab GPU); the M5 Streamlit app runs from a fresh clone with no pipeline run. Honest headline: no economically usable out-of-sample skill, the EMH ceiling holds. No blockers.
+> M1 + M2 + M3 + M3.5 + M4 + M5 + M3.6 complete, all multi-agent-audited. Full pipeline reproducible from committed snapshots (LSTM on Colab GPU); the M5 Streamlit app runs from a fresh clone with no pipeline run. Honest headline: **no usable out-of-sample RETURN skill** (return direction is an EMH coin flip — M3/M4). **M3.6 adds the risk-side positive: realized VOLATILITY is predictable out-of-sample** (every model beats random-walk-vol on QLIKE at both horizons) — a 2nd-moment result for risk management, not tradeable return alpha, so it is consistent with the EMH conclusion. No blockers.
 
 ## Decisions log
 

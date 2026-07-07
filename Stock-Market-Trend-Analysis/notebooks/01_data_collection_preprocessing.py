@@ -1051,6 +1051,12 @@ def write_feature_dictionary(df: pd.DataFrame, out_path: Path) -> None:
         "term_spread_change": ("feature", "Daily change in term spread", "term_spread.diff()", "yes"),
         "dxy_log_return": ("feature", "US dollar index daily log return", "ln(dxy_t/dxy_{t-1})", "yes"),
     }
+    # M3.6 volatility-target labels (notebook 04 forecasts these) — documented so the dictionary does not
+    # mark them as _undocumented_.
+    for _h in VOL_HORIZONS:
+        meta[f"fwd_rv_{_h}"] = (
+            "VOL_TARGET", f"{_h}-day forward realized volatility (M3.6 label)",
+            f"sqrt(sum of next {_h} squared log returns) per ticker per split, shift(-{_h})", "n/a (label)")
     lines = [
         "# Feature dictionary — Stock Market Trend Analysis M1",
         "",

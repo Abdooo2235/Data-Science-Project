@@ -179,11 +179,14 @@ def dm_hac(loss_a, loss_b, lag):
 
 
 def duan_smearing(model_predict_log, X, log_residuals_train):
-    """Back-transform a log-space forecast to the level with the Duan smearing correction:
-    E[RV] = exp(pred_log) * E[exp(resid)] ≈ exp(pred_log + s²/2) under normal logs. Without it, exp(mean)
-    systematically UNDER-predicts the level (Jensen's inequality). s² is estimated on TRAIN residuals only."""
-    s2 = float(np.var(np.asarray(log_residuals_train, float), ddof=1))
-    return np.exp(np.asarray(model_predict_log, float) + s2 / 2.0), s2
+    """Back-transform a log-space forecast to the level with **Duan (1983) smearing** — the
+    distribution-free estimator: E[RV] = exp(pred_log) * mean(exp(resid)), the empirical mean of the
+    exponentiated TRAIN residuals (NOT the parametric exp(pred_log + s²/2), which assumes normal logs).
+    Without any correction, exp(mean-log) systematically UNDER-predicts the level (Jensen's inequality)."""
+    resid = np.asarray(log_residuals_train, float)
+    resid = resid[np.isfinite(resid)]
+    smear = float(np.mean(np.exp(resid)))   # empirical smearing factor, distribution-free
+    return np.exp(np.asarray(model_predict_log, float)) * smear, smear
 
 
 # Toy unit tests
@@ -393,8 +396,9 @@ def score_models(h, y, preds, store):
         dm_rw = dm_hac(qlike_loss_series(yv ** 2, pv ** 2), qlike_loss_series(yv ** 2, rw_v ** 2), lag)
         rows.append({
             "horizon": h, "model": m, "n": int(finite.sum()),
-            # R2_log is on log of the Duan-SMEARED level pv (constant +s²/2 shift vs raw pred_log; makes
-            # R2_log marginally more conservative, ~0.007 lower — never inflated).
+            # R2_log is on log of the Duan-SMEARED level pv = pred_log + log(smear). R² is NOT shift-
+            # invariant, so the smear constant nudges R2_log by ~0.003 (empirical vs parametric); reported
+            # figures use the correct empirical-Duan estimator.
             "R2_level": r2_score(yv, pv), "R2_log": r2_score(np.log(yv + EPS), np.log(pv + EPS)),
             "QLIKE": qlike(yv ** 2, pv ** 2), "MZ_a": a, "MZ_b": b,
             "DM_vs_HAR_p": dm_har[1], "DM_vs_RW_p": dm_rw[1],
@@ -577,7 +581,11 @@ audit = {
     "block_aware_dm": "DM_vs_RW_p" in val_vol.columns and "DM_vs_HAR_p" in val_vol.columns,
     # Prove the smearing actually shifts up: exp(0 + s²/2) > 1 for any non-degenerate residuals.
     "duan_smearing_applied": float(duan_smearing(np.zeros(1), None, np.array([0.1, -0.1, 0.05, -0.05]))[0][0]) > 1.0,
-    "garch_asymmetric": all(abs(garch_cache[HORIZONS[0]][1][t]["gamma"]) >= 0 for t in TICKERS),
+    # Non-tautological: gamma must be FINITE and non-negative across ALL horizons and tickers (a missing
+    # or NaN asymmetric term fails this; the old abs(gamma)>=0 passed for any finite gamma on h=5 only).
+    "garch_asymmetric": all(
+        np.isfinite(garch_cache[h][1][t]["gamma"]) and garch_cache[h][1][t]["gamma"] >= 0
+        for h in HORIZONS for t in TICKERS),
     "holdout_opened_once": OPEN_HOLDOUT and holdout_vol is not None
     and (MODELS / "holdout_vol_scores.csv").exists(),
     "holdout_common_mask": OPEN_HOLDOUT and all(
