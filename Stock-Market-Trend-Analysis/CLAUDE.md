@@ -161,7 +161,7 @@ Log. Keep this discipline for M4.
   `FEAT_MODEL` = the 39 baseline, so baseline vs tuned is a **clean tuning-only comparison**. Optuna LightGBM
   tuning on a purged walk-forward CV (chose 2 trees) **fixed the overfit** — tuned went from worse-than-naive
   (0.02168) to naive-tying (0.02107), `PROMOTE`d over baseline (DM p=0.0025, significant). Ensemble rebuilt on the
-  return scale (GARCH+LSTM, honest shrinkage framing). No model beats naive on RMSE — EMH ceiling intact; the
+  return scale (GARCH+LSTM, honest shrinkage framing). No model *significantly* beats naive on RMSE (a few edge it by ~1e-5, all Diebold-Mariano p>0.05) — EMH ceiling intact; the
   54.2% directional figure is the shared upward drift (both models predict up ~100% of days), cost-erased, not new skill. 22/22 structural
   self-audit checks pass.
 - **Attention-LSTM trained on Colab GPU (2026-07-06)** via `FULL_TRAIN` (Optuna picked units=64/2-layer/dropout
@@ -170,7 +170,7 @@ Log. Keep this discipline for M4.
   GJR-GARCH (0.543) and tuned LightGBM (0.542), both p=0.002, keep a reproducible edge. EMH ceiling reinforced.
 - **M4 (Evaluation & Presentation) done** (2026-07-06, multi-agent audited): `notebooks/04_*`, `reports/milestones/M4.md`,
   4 M4 figures, and a 12-slide light-finance HTML deck (`reports/M4_presentation.html`, also published as a claude.ai
-  Artifact). Honest headline: no model beats naive; the one significant directional edge is market drift, not skill.
+  Artifact). Honest headline: no model significantly beats naive on RMSE (DM p>0.05); the one significant directional edge is market drift, not skill.
 - **M5 (real deployment) done** (2026-07-06, multi-agent audited): `app.py` Streamlit app replays the sealed
   holdout (ticker/model/date pickers, forecast vs actual, honest accuracy table, disclaimer front and center)
   plus a live tuned-LightGBM integrity re-prediction. Four small artifacts (~660 KB) un-gitignored so a fresh
