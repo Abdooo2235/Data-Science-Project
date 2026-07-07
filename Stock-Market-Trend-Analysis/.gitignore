@@ -18,9 +18,16 @@ env/
 *.nbconvert.ipynb
 
 # Project artifacts that are expensive to regenerate but not source of truth
-data/processed/
-models/
+# (use dir/* not dir/ so the M5 app's four small artifacts can be re-included below)
+data/processed/*
+models/*
 reports/figures/
+
+# M5 app runs from a fresh clone: keep its four small required artifacts (~660 KB total)
+!data/processed/holdout_predictions.parquet
+!data/processed/holdout_fe.parquet
+!models/m4_holdout_scores.csv
+!models/lgbm_global_tuned_final.txt
 
 # Keep the raw snapshot CSVs committed (small, reproducibility anchor)
 !data/raw/
