@@ -31,6 +31,9 @@ Forecast next-day price movement for the S&P 500 index plus three tech stocks (A
 │   └── progress_checklist.md
 ├── References/                    course PDFs + RestaurantSmartWait.ipynb style reference
 ├── scripts/                       small helper scripts (notebook build, snapshots)
+├── app.py                         # M5: Streamlit web app (streamlit run app.py)
+├── test_app.py                    # M5 smoke test
+├── .streamlit/config.toml         # app theme
 ├── requirements.txt
 └── README.md
 ```
@@ -97,8 +100,9 @@ See [Plans/progress_checklist.md](Plans/progress_checklist.md) for the live trac
 - **M2** ✅ — Exploratory data analysis. Spec: [Plans/milestone2_eda.md](Plans/milestone2_eda.md). Report: [reports/milestones/M2.md](reports/milestones/M2.md).
 - **M3** ✅ — Model building (ARIMA + GJR-GARCH + LightGBM + attention-LSTM + ensemble; exogenous features). Spec: [Plans/milestone3_model_building.md](Plans/milestone3_model_building.md). Report: [reports/milestones/M3.md](reports/milestones/M3.md). LSTM training on Colab: [reports/COLAB_TRAINING_GUIDE.md](reports/COLAB_TRAINING_GUIDE.md).
 - **M4** ✅ — Evaluation & presentation. Spec: [Plans/milestone4_evaluation_presentation.md](Plans/milestone4_evaluation_presentation.md). Report: [reports/milestones/M4.md](reports/milestones/M4.md). Slide deck: [reports/M4_presentation.html](reports/M4_presentation.html) (open in a browser, or print to PDF).
+- **M5** ✅ — Real deployment (extra, not graded): `streamlit run app.py`. Report: [reports/milestones/M5.md](reports/milestones/M5.md).
 
-**Honest headline:** no model trained on price history beats a naive next-day forecast out of sample. The one edge that survives significance testing is the market's upward drift, not timing skill, and it does not survive transaction costs. The efficient-market ceiling holds, and measuring it carefully is the result.
+**Honest headline:** no model trained on price history *significantly* beats a naive next-day forecast out of sample (a few edge it by ~1e-5 on RMSE, all within Diebold-Mariano noise, p>0.05). The one edge that survives significance testing is the market's upward drift, not timing skill, and it does not survive transaction costs. The efficient-market ceiling holds, and measuring it carefully is the result.
 
 ## Limitations (preview — full discussion in M4)
 

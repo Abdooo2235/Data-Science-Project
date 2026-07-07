@@ -17,7 +17,7 @@ def test_app_renders_without_exception():
     at = AppTest.from_file("app.py", default_timeout=60).run()
     assert not at.exception, f"app raised: {at.exception}"
     # disclaimer is front and center (M5 spec requirement)
-    assert any("not investment advice" in str(e.value) for e in at.error)
+    assert any("not investment advice" in e.value for e in at.error)
     # sidebar has the three pickers
     assert len(at.sidebar.selectbox) == 3
 
@@ -35,6 +35,7 @@ def test_live_lgb_matches_stored_predictions():
     X = m[booster.feature_name()].copy()
     X["ticker"] = pd.Categorical(X["ticker"], categories=["AAPL", "AMZN", "NVDA", "^GSPC"])
     live = booster.predict(X)
+    # pyrefly: ignore  # booster.predict/.values have broad union stubs; both are float ndarrays at runtime
     assert np.isclose(live, m["y_pred_lgb_tuned"].values, atol=1e-9).all()
 
 
