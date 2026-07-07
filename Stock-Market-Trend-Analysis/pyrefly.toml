@@ -1,0 +1,4 @@
+# Pyrefly type-checker config. Pins the project venv so imports (lightgbm,
+# streamlit, ...) resolve instead of the system Python. Path is relative to
+# this file; matches the venv the notebooks/app already run under (3.10).
+python-interpreter-path = ".venv/Scripts/python.exe"
