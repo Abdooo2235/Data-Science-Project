@@ -729,6 +729,9 @@ def make_features(df: pd.DataFrame) -> pd.DataFrame:
 # 3. Build the next-day target **per split** via `groupby(ticker).log_return.shift(-1)`. Doing it *after*
 #    splitting means the last row of each split has `NaN` target (its "tomorrow" lives in the next split) —
 #    so no label leaks forward across a boundary. M3 drops NaN-target rows.
+# 4. Build the **M3.6 volatility targets** the same way: `fwd_rv_{h}` = sqrt(sum of the next `h` squared
+#    log returns) per ticker per split, via `shift(-h)`. Last `h` rows/split are NaN (forward window would
+#    cross the split edge). Kept alongside `target_log_return`; notebook 04 forecasts these, M3 ignores them.
 #
 # Splits: train ≤ 2023-12-31 · val = 2024 · holdout ≥ 2025-01-01.
 
@@ -742,12 +745,30 @@ def add_next_day_target(split_df: pd.DataFrame) -> pd.DataFrame:
     return split_df
 
 
+# M3.6 volatility targets. h-day forward realized volatility per ticker =
+# sqrt(sum of the NEXT h squared log returns). Built WITHIN one split via shift(-h), exactly
+# like the next-day target above: the last h rows of each split become NaN (their forward
+# window lives in the next split), so no volatility label leaks across a split boundary. These
+# columns live ALONGSIDE target_log_return; M3 is unaffected (it drops NaN on its own target).
+VOL_HORIZONS = [5, 20]
+
+
+def add_forward_vol_targets(split_df: pd.DataFrame, horizons=VOL_HORIZONS) -> pd.DataFrame:
+    d = split_df.sort_values(["ticker", "date"]).reset_index(drop=True)
+    d["_sq_ret"] = d.groupby("ticker")["log_return"].transform(lambda s: s.pow(2))
+    for h in horizons:
+        d[f"fwd_rv_{h}"] = np.sqrt(
+            d.groupby("ticker")["_sq_ret"].transform(lambda s: s.rolling(h).sum().shift(-h))
+        )
+    return d.drop(columns="_sq_ret")
+
+
 TRAIN_END = pd.Timestamp("2023-12-31")
 VAL_END = pd.Timestamp("2024-12-31")
 
-train_fe = add_next_day_target(df_fe[df_fe.date <= TRAIN_END].copy())
-val_fe = add_next_day_target(df_fe[(df_fe.date > TRAIN_END) & (df_fe.date <= VAL_END)].copy())
-holdout_fe = add_next_day_target(df_fe[df_fe.date > VAL_END].copy())
+train_fe = add_forward_vol_targets(add_next_day_target(df_fe[df_fe.date <= TRAIN_END].copy()))
+val_fe = add_forward_vol_targets(add_next_day_target(df_fe[(df_fe.date > TRAIN_END) & (df_fe.date <= VAL_END)].copy()))
+holdout_fe = add_forward_vol_targets(add_next_day_target(df_fe[df_fe.date > VAL_END].copy()))
 
 for name, sdf in [("train", train_fe), ("val", val_fe), ("holdout", holdout_fe)]:
     print(f"{name:7s}  rows={len(sdf):>5d}  dates {sdf.date.min().date()} -> {sdf.date.max().date()}")
@@ -755,6 +776,21 @@ for name, sdf in [("train", train_fe), ("val", val_fe), ("holdout", holdout_fe)]
 assert train_fe.date.max() < val_fe.date.min(), "train/val overlap!"
 assert val_fe.date.max() < holdout_fe.date.min(), "val/holdout overlap!"
 print("\nLeakage assertion passed: train.max < val.min < val.max < holdout.min")
+
+# M3.6 volatility-target leakage guard. The last h rows of each ticker in each split MUST be NaN
+# (a forward h-day window there would reach past the split edge into the next split). We assert the
+# stronger property that EXACTLY h rows/ticker are NaN — catching both (a) a too-short ticker where a
+# plain tail(h).all() would pass vacuously, and (b) an interior NaN log_return silently voiding extra
+# target rows and shrinking the eval sample without error (audit finding, M3.6 Phase 1).
+for _sdf, _name in [(train_fe, "train"), (val_fe, "val"), (holdout_fe, "holdout")]:
+    for _h in VOL_HORIZONS:
+        _na_per_ticker = _sdf.groupby("ticker")[f"fwd_rv_{_h}"].apply(lambda s: int(s.isna().sum()))
+        assert (_na_per_ticker == _h).all(), (
+            f"{_name}: fwd_rv_{_h} NaN count per ticker is {_na_per_ticker.to_dict()}, expected exactly {_h} "
+            f"(tail-only). >h ⇒ interior gap voided targets; <h ⇒ boundary leak.")
+        _tail_all_nan = _sdf.groupby("ticker").tail(_h)[f"fwd_rv_{_h}"].isna().all()
+        assert _tail_all_nan, f"{_name}: fwd_rv_{_h} NaNs are not the tail rows — vol label leak!"
+print(f"Forward-vol leakage guard passed: exactly h tail rows/ticker NaN for horizons {VOL_HORIZONS}")
 
 # Verify target encoding varies per row (not a constant per-ticker global mean).
 print("\nTarget-encoded unique values per ticker (train) — should be ~#rows, not 1:")
@@ -924,6 +960,7 @@ roles = {
     "id_cols": ID_COLS,
     "model_features": MODEL_FEATURES,
     "candidate_features": CANDIDATE_FEATURES,  # M3.5 ablation pool — notebook 03 promotes survivors
+    "vol_targets": {f"fwd_rv_{h}": h for h in VOL_HORIZONS},  # M3.6 — h-day forward realized vol
     "raw_price_level_excluded": RAW_PRICE_LEVEL,
     "diagnostic_cols": DIAGNOSTIC_COLS,
     "source_cols": SOURCE_COLS,

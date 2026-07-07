@@ -17,8 +17,8 @@
 | Owner | Ali Agela |
 | Start date | 2026-05-21 |
 | Current week (1–14) | 13 |
-| Current milestone | M4 done (M1+M2+M3+M3.5 complete); M5 deployment optional/next |
-| Last updated | 2026-07-06 (M4 complete, multi-agent audited) |
+| Current milestone | M5 done (M1+M2+M3+M3.5+M4+M5 complete) |
+| Last updated | 2026-07-06 (M5 deployment complete, multi-agent audited) |
 
 ## Overall progress
 
@@ -26,6 +26,8 @@
 - [x] **Milestone 2 — Exploratory Data Analysis** (Week 9) — 11 / 11 (2026-06-17: multi-agent reviewed + fixed → 18 figures, 5 hypotheses, 13/13 self-audit PASS)
 - [~] **Milestone 3 — Model Building (ARIMA+GARCH vs LSTM)** (Week 11) — 12 / 13 (core done + multi-agent-audited 2026-06-17, 15/15 self-audit; LSTM full-train pending Colab)
 - [x] **Milestone 4 — Evaluation & Presentation** (Week 13) — 11 / 11 (2026-07-06: 12/12 self-audit PASS; M4.md + notebook 04 + 4 figures + 12-slide HTML deck published as an Artifact; multi-agent audited)
+- [x] **Milestone 5 — Real deployment (Streamlit)** (extra, not graded) — 8 / 8 (2026-07-06: 5/5 self-audit PASS; app.py + test_app.py + M5.md; multi-agent audited, 1 BLOCKER + 2 HIGH fixed)
+- [x] **Milestone 3.6 — Volatility Forecasting** (2026-07-07: notebook 04 + M3.6.md; 13/13 self-audit; 3 Model-QA audits) — **positive OOS result: realized volatility IS predictable (unlike return direction). Every model beats random-walk-vol on QLIKE OOS at both horizons; best h=5 GJR-GARCH/LightGBM, best h=20 LightGBM. Risk, not return alpha.**
 
 ---
 
@@ -118,13 +120,41 @@
 
 ---
 
-## Milestone 5 (next, on request) — Real deployment
+## Milestone 5 — Real deployment (Streamlit)  *(status: ☑ complete — extra, not graded)*
 
-> A live web app (Streamlit or similar) that loads the trained models + `holdout_predictions.parquet`, lets a user pick a ticker and date and see the forecast versus the actual next-day return, with the not-investment-advice disclaimer front and center and the honest accuracy shown. Not built yet; scoped for when the user asks. Not part of the graded course milestones.
+**Report:** [`reports/milestones/M5.md`](../reports/milestones/M5.md) | **Run:** `streamlit run app.py` | **Test:** `python test_app.py`
+
+- [x] `app.py` — Streamlit app: ticker + model + date pickers over the sealed holdout; forecast vs actual with HIT/MISS verdict; full-holdout Altair chart with selected date marked
+- [x] Not-investment-advice disclaimer front and center (red error box under the title, before any data; verbatim M4 §5b text; asserted by the smoke test)
+- [x] Honest accuracy table (all 7 models, `Days scored` + `Naive RMSE (same days)` + DM p vs naive + drift debunk bullets) — consistent with M4.md, agent-verified
+- [x] Live-model proof: tuned-LightGBM booster re-run on the selected date's features, asserted equal to the stored prediction (red error on mismatch)
+- [x] Naive zero rendered as "no direction call" (no fabricated DirAcc); per-ticker captions compare each model to the always-up base rate
+- [x] `test_app.py` smoke test — AppTest full render (0 exceptions) + booster reproduces all 1,380 stored predictions
+- [x] Fresh-clone deployable: 4 small artifacts (~660 KB) un-gitignored via carve-outs; friendly `st.error`+`st.stop` if missing; `streamlit`+`altair` pinned in requirements.txt
+- [x] Multi-agent audited (Model QA + Investment Researcher + code reviewer): 1 BLOCKER (gitignored artifacts) + 2 HIGH (table contradicted no-model-beats-naive bullet) + 3 MED + 5 LOW — all fixed; date semantics verified no off-by-one
+
+## Milestone 3.6 — Volatility forecasting  *(status: ☑ complete — multi-agent audited)*
+
+**Spec:** [`Plans/milestone_volatility.md`](milestone_volatility.md). Pivot from return direction (EMH coin flip) to
+**5-day forward realized volatility** (val R² ≈ 0.50–0.56 in the feasibility probe — a real positive result).
+
+- [x] Feasibility probe `scripts/vol_feasibility.py` (HAR-RV / LightGBM / random-walk, self-checked): 5-day RV R²(log) 0.52–0.56 vs random-walk floor 0.12
+- [x] Return-horizon negative-result probe `scripts/horizon_experiment.py` (5/20-day return direction = drift + overlap artifact, no usable edge) — motivates the pivot
+- [x] **Phase 1**: `fwd_rv_5` / `fwd_rv_20` targets wired into notebook 01 (per-split `shift(-h)`, leakage-safe) + exposed in `feature_roles.json` `vol_targets`; parquets regenerated offline from snapshots; ipynb regenerated
+- [x] Phase 1 leakage guard: asserts exactly `h` tail rows/ticker NaN per split (catches sub-h vacuity + interior-NaN void)
+- [x] Phase 1 adversarial audit (Model QA Specialist subagent): verdict **leakage-safe**; window provably `[t+1,t+h]`, embargo=horizon exactly sufficient. Fixes applied: tightened guard; corrected the plan's false "probe implements embargo" claim into a hard leak-trap warning (do NOT reuse `03`'s `embargo=1` for a multi-day target)
+- [x] Phase 2: `notebooks/04_volatility_modeling.py` — RandomWalk + HAR-RV + GJR-GARCH + LightGBM(Optuna), **horizon-aware** purged CV (embargo=h), QLIKE + R² + Mincer-Zarnowitz + block-aware DM. **Result (val): 5-day RV LightGBM R²log 0.57, QLIKE -5.64, beats RandomWalk (DM p=2.5e-8) AND HAR (p=0.002) — real, robust vol skill.** 11/11 self-audit PASS
+- [x] Phase 2 reporting fixes baked in: block-aware DM (Newey-West lag=h-1); Duan smearing on the `exp` back-transform; one common dropna mask across all models per horizon; QLIKE declared decisive
+- [x] Phase 2 adversarial audit (Model QA Specialist): **leakage-safe + 5-day skill honest/reproducible** (DM survives 4× HAC widening). Fixes applied: (1) made the embargo assert load-bearing (tied embargo to horizon so a 1-day embargo on a multi-day target is impossible); (2) surfaced DM-vs-HAR in the summary so the h=20 HAR **tie** (p=0.165) isn't buried; (3) tightened R²_log comment. **Honest caveat: h=20 ties HAR and its RW edge is marginal/tuning-sensitive — Phase 4 must report h=20 as "skilled but not reliably above persistence", h=5 as the clean win**
+- [~] Phase 3: ablation for new vol candidate features — **SKIPPED (user decision, YAGNI)**: existing features already give strong significant OOS skill; candidate vol features are speculative marginal gain
+- [x] Phase 4: **holdout opened ONCE** → `reports/milestones/M3.6.md` + 6 figures. **OOS result: every model beats random-walk-vol on QLIKE (p≤1e-9 h=5, p≤0.033 h=20); best h=5 GJR-GARCH/LightGBM near-tie (QLIKE -5.47), best h=20 LightGBM (R²log 0.59, beats HAR p=0.005 — val tie resolved OOS). Volatility IS predictable OOS.** Models refit on train+val, LightGBM reused val-tuned params. 13/13 self-audit PASS
+- [x] Phase 5: final adversarial audit (Model QA Specialist) — **VERDICT: leakage-free, honestly reported, reproducible to machine epsilon** (CSVs regenerate to ~1e-13; GARCH `last_obs` proven to exclude all holdout; holdout is a representative regime, not cherry-picked; no re-tuning on holdout). Fixes: bound 2 self-audit checks to computed results (no hardcoded True); corrected report's "regime change" over-characterization to honest "mild distribution shift". Graph refreshed (code-only: 481 nodes / 529 edges)
+
+**M3.6 headline:** volatility is genuinely predictable out-of-sample where return direction was not. Every model beats random-walk-vol on QLIKE OOS (p≤1e-9 h=5, p≤0.033 h=20); best h=5 GJR-GARCH/LightGBM near-tie, best h=20 LightGBM (R²log 0.59, beats HAR p=0.005). This is about **risk (2nd moment)**, not tradeable return alpha — consistent with the M3/M4 EMH conclusion on returns.
 
 ## Status
 
-> M1 + M2 + M3 + M3.5 + M4 complete, all multi-agent-audited. Full pipeline reproducible from committed snapshots (LSTM on Colab GPU). Honest headline: no economically usable out-of-sample skill, the EMH ceiling holds. All four milestone reports + the presentation deck are done. No blockers.
+> M1 + M2 + M3 + M3.5 + M4 + M5 complete, all multi-agent-audited. Full pipeline reproducible from committed snapshots (LSTM on Colab GPU); the M5 Streamlit app runs from a fresh clone with no pipeline run. Honest headline: no economically usable out-of-sample skill, the EMH ceiling holds. No blockers.
 
 ## Decisions log
 
@@ -176,6 +206,8 @@ Append one line per non-trivial decision. Format: `YYYY-MM-DD | M# | decision | 
 - `2026-07-06 | M3-finding | Real Colab GPU LSTM edge did NOT reproduce | First actual GPU run (Optuna: units=64/2-layer/dropout0.26/lr0.0013) gives holdout DirAcc 0.491 (p=0.574, coin flip) + RMSE 0.02031 worse than naive (DM p=0.004); earlier forced-CPU run showed 0.542 (p=0.005). Ensemble GARCH+LSTM 0.512 (coin flip), dragged by flat LSTM. Only GARCH (0.543) + tuned-LightGBM (0.542), both p=0.002, keep a reproducible edge. Strengthens EMH conclusion: the one DL edge was run-dependent noise. M3.md §5/§8/headline + CLAUDE.md updated to real numbers`
 - `2026-07-05 | M3.5 | Ensemble fixed: return-scale equal-weight GARCH-mean + attention-LSTM (dropped overfit LightGBM) | Old z-blend was off-scale (RMSE n/a) and blended the overfit member into the real-edge LSTM. New blend is fully scorable (RMSE/MAE/DM) + feeds cost backtest; least-correlated pair. Old z-blend kept as documented rejected baseline`
 - `2026-07-05 | M3.5 | LSTM Optuna (15 trials, inner purged split, scaler on inner-train only) + bidirectional option, Colab-gated | LSTM improvements (units/dropout/lr/batch/layers/bidir) tuned on GPU only; local stays 2-epoch smoke. 22/22 self-audit pass`
+- `2026-07-06 | M5 | Streamlit app (app.py) replays the sealed holdout: stored predictions for all 7 models + a live tuned-LGB integrity re-prediction; Altair chart; disclaimer front and center | Deployment = replay-only by design (no "tomorrow" surface = structural misuse guard). One smoke test (AppTest render + 1380-row booster reproduction). streamlit+altair pinned`
+- `2026-07-06 | M5-audit | 3 parallel agents (Model QA + Inv Researcher + code reviewer); all findings fixed | BLOCKER: app's 4 required artifacts were gitignored -> fresh clone crashed raw; carved out ~660 KB via dir/* + ! rules + st.error/st.stop guard. HIGH (both agents): accuracy table showed LSTM/ens RMSE below naive without the 1,140-row caveat (matched naive 0.02004) -> added Days scored + Naive RMSE (same days) + DM p columns + caption. MED: naive-zero fabricated "calls DOWN" + 45.8% DirAcc -> "no direction call"; static always-up caption false for below-drift models -> dynamic; "holdout never used for decisions" overclaim -> promote/revert wording. LOWs: mtime cache keys, warning/error on live-check gaps, delta colors off, na_rep, 54.2/54.3 precision`
 
 ## How to feed this to a cheap model
 
@@ -193,3 +225,7 @@ Execute the next unchecked item under "Milestone N". Stop after one item.
 ```
 
 This keeps context small enough for a 7B-class model and produces auditable diffs.
+`2026-07-07 | M3.6 | Pivot to volatility forecasting; wired fwd_rv_5/fwd_rv_20 targets into M1 (Phase 1) | Return direction is an EMH coin flip and a 5/20-day return-direction probe (scripts/horizon_experiment.py) confirmed the longer-horizon edge is drift + overlapping-window pseudo-replication, not skill. Volatility IS predictable (M2 vol clustering; feasibility probe scripts/vol_feasibility.py: 5-day forward RV val R2(log) 0.52-0.56 vs random-walk floor 0.12). Targets built per-split via shift(-h), leakage-safe (last h rows/ticker NaN), exposed in feature_roles.json vol_targets`
+`2026-07-07 | M3.6-audit | Phase 1 adversarially audited (Model QA Specialist subagent): leakage-safe, verified | Target window provably [t+1,t+h] (day t excluded), per-split NaN boundary correct, embargo=horizon exactly sufficient, no return-metric smuggled in. Fixes: (1) tightened the leakage guard to assert exactly h NaN tail rows/ticker. (2) Corrected the plan's false claim that vol_feasibility.py implements horizon-aware embargo into a hard LEAK-TRAP warning: Phase 2 must NOT reuse 03's embargo=1 date_folds for a 5/20-day RV target. Deferred to Phase 2: overlap-aware DM significance, Jensen/Duan smearing on exp back-transform, common dropna mask`
+`2026-07-07 | M3.6 | Phase 2 built notebook 04 (RandomWalk/HAR-RV/GJR-GARCH/LightGBM-Optuna) + adversarially audited | Forecasts h-day forward realized vol. Reused 03's metrics/date_folds/GARCH/Optuna; added block-aware Diebold-Mariano (Newey-West lag=h-1 for overlapping windows), Duan smearing on the exp back-transform, one common dropna mask per horizon, QLIKE decisive. Result (val): 5-day RV LightGBM R2log 0.57 QLIKE -5.64, beats RandomWalk (DM p=2.5e-8) AND HAR (p=0.002) - a real, robust positive result (survives 4x HAC widening). Model QA audit: leakage-safe (target [t+1,t+h], holdout sealed, GARCH val-excluded, embargo=h purge verified). Fixes: made embargo assert load-bearing by tying embargo to horizon; surfaced DM-vs-HAR so the h=20 HAR tie (p=0.165) is not buried. HONEST CAVEAT: h=20 ties HAR and its RW edge is marginal/tuning-sensitive; h=5 is the clean headline`
+`2026-07-07 | M3.6 | Phases 4-5: opened holdout ONCE, wrote M3.6.md, final adversarial audit -> milestone COMPLETE | Skipped Phase 3 ablation (user decision, YAGNI - existing features already give strong significant OOS skill). Models refit on train+val (LightGBM reused val-tuned params, NOT re-tuned on holdout); holdout scored once. OOS result: every model beats random-walk-vol on QLIKE (h=5 p<=1e-9, h=20 p<=0.033); best h=5 GJR-GARCH/LightGBM near-tie (QLIKE -5.47), best h=20 LightGBM (R2log 0.59, beats HAR p=0.005 - the val-set HAR tie resolved OOS). Final Model QA audit verdict: leakage-free, honestly reported, reproducible to machine epsilon (CSVs regenerate to 1e-13; GARCH last_obs proven to exclude all holdout; representative regime not cherry-picked). Fixes: bound 2 self-audit checks to computed results; corrected report 'regime change' wording to honest 'mild distribution shift'. Headline: volatility (2nd moment/risk) is predictable OOS where return direction (1st moment) was an EMH coin flip - consistent with, not contradicting, M3/M4`
