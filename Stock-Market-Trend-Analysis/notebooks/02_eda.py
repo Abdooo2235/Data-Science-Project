@@ -104,6 +104,15 @@ def read_parquet_logged(path, *a, **k):
 
 pd.read_parquet = read_parquet_logged
 
+# M1 outputs (train_fe/val_fe/feature_roles/...) are gitignored except the two holdout files, so a fresh
+# clone (Colab or local) won't have train_fe.parquet. Regenerate them once by running M1, which reads the
+# committed data/raw/*.csv snapshots (cache-first, no network). Runs in a subprocess so this kernel's
+# _OPENED_PARQUET sealing log stays untouched.
+if not (PROC / "train_fe.parquet").exists():
+    _m1 = ROOT / "notebooks" / "01_data_collection_preprocessing.py"
+    print(f"train_fe.parquet missing -> running M1 to regenerate it ({_m1.name})...")
+    subprocess.run([sys.executable, str(_m1)], check=True, cwd=str(ROOT))
+
 train = pd.read_parquet(PROC / "train_fe.parquet")
 train["date"] = pd.to_datetime(train["date"])
 roles = json.loads((PROC / "feature_roles.json").read_text())

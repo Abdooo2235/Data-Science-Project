@@ -1,3 +1,5 @@
 {
-    "python.defaultInterpreterPath": "c:\\Users\\ASUS\\Downloads\\Data-Science-Project\\Stock-Market-Trend-Analysis\\.venv\\Scripts\\python.exe"
+    "python.defaultInterpreterPath": "c:\\Users\\ASUS\\Downloads\\Data-Science-Project\\Stock-Market-Trend-Analysis\\.venv\\Scripts\\python.exe",
+    "markdown.extension.completion.enabled": false,
+    "markdown.extension.tableFormatter.enabled": false
 }
