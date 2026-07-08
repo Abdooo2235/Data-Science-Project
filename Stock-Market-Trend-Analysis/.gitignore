@@ -29,6 +29,14 @@ reports/figures/
 !models/m4_holdout_scores.csv
 !models/lgbm_global_tuned_final.txt
 
+# Committed so a fresh clone can run M2/M3 directly without re-running M1 (~3.5 MB).
+# M1 still regenerates these deterministically from data/raw/ if ever deleted.
+!data/processed/train_fe.parquet
+!data/processed/val_fe.parquet
+!data/processed/feature_roles.json
+!data/processed/feature_dictionary.md
+!data/processed/feature_nan_report.md
+
 # Keep the raw snapshot CSVs committed (small, reproducibility anchor)
 !data/raw/
 

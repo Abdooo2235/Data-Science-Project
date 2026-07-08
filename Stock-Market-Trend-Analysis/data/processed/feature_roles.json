@@ -1,0 +1,90 @@
+{
+  "target": "target_log_return",
+  "id_cols": [
+    "date",
+    "ticker"
+  ],
+  "model_features": [
+    "month",
+    "dayofweek",
+    "quarter",
+    "is_month_start",
+    "is_month_end",
+    "is_quarter_end",
+    "month_sin",
+    "month_cos",
+    "dow_sin",
+    "dow_cos",
+    "daily_return",
+    "log_return",
+    "log_return_lag_1",
+    "log_return_lag_5",
+    "log_return_lag_21",
+    "momentum_5",
+    "momentum_21",
+    "momentum_63",
+    "price_to_sma_20",
+    "price_to_sma_50",
+    "price_to_sma_200",
+    "realized_vol_5",
+    "realized_vol_21",
+    "realized_vol_63",
+    "rolling_std_20",
+    "parkinson_vol_21",
+    "rsi_14",
+    "volume_z_20",
+    "ticker_expanding_mean",
+    "ticker_expanding_std",
+    "vix_level",
+    "vix_log_change",
+    "vix_z_60",
+    "is_high_vol_regime",
+    "tnx_level",
+    "tnx_change",
+    "term_spread",
+    "term_spread_change",
+    "dxy_log_return"
+  ],
+  "candidate_features": [
+    "semi_vol_21",
+    "semi_vol_63",
+    "ret_skew_21",
+    "ret_kurt_21",
+    "atr_14"
+  ],
+  "vol_targets": {
+    "fwd_rv_5": 5,
+    "fwd_rv_20": 20
+  },
+  "raw_price_level_excluded": [
+    "close_lag_1",
+    "close_lag_5",
+    "close_lag_21",
+    "close_lag_63",
+    "sma_20",
+    "sma_50",
+    "sma_200"
+  ],
+  "diagnostic_cols": [
+    "roll_median_60",
+    "roll_mad_60",
+    "mad_z_score",
+    "is_tail_event",
+    "is_extreme_5pct",
+    "is_warmup"
+  ],
+  "source_cols": [
+    "Open",
+    "High",
+    "Low",
+    "Close",
+    "Adj Close",
+    "Volume"
+  ],
+  "exog_raw": [
+    "vix",
+    "tnx",
+    "irx",
+    "dxy"
+  ]
+}
