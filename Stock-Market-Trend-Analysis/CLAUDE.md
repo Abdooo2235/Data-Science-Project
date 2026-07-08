@@ -59,8 +59,9 @@ Stock-Market-Trend-Analysis/
 │   ├── milestone{1,2,3,4}_*.md   # AI-executable specs (one per milestone)
 │   └── progress_checklist.md     # master tracker + Decisions Log (append-only, one line/decision)
 ├── notebooks/
-│   ├── 0{1,2,3}_*.py             # SOURCE OF TRUTH (jupytext "percent" format)
-│   └── 0{1,2,3}_*.ipynb          # generated from .py — for Google Colab
+│   ├── 0{1,2,3,4,5}_*.py         # SOURCE OF TRUTH (jupytext "percent"): 01 data, 02 EDA, 03 models,
+│   │                             #   04 volatility (M3.6), 05 volatility-regime classifier (M6)
+│   └── 0{1,2,3,4,5}_*.ipynb      # generated from .py — for Google Colab
 ├── scripts/py_to_nb.py           # .py -> .ipynb converter (nbformat; no jupyter needed)
 ├── data/
 │   ├── raw/                      # *_10y.csv snapshots (COMMITTED = reproducibility anchor) + snapshot_hashes.json
@@ -175,6 +176,19 @@ Log. Keep this discipline for M4.
   holdout (ticker/model/date pickers, forecast vs actual, honest accuracy table, disclaimer front and center)
   plus a live tuned-LightGBM integrity re-prediction. Four small artifacts (~660 KB) un-gitignored so a fresh
   clone runs `streamlit run app.py` directly; `test_app.py` is the smoke test. Report: `reports/milestones/M5.md`.
+- **M3.6 (volatility forecasting) done** (2026-07-07, 3 Model-QA audits): `notebooks/04_volatility_modeling.py`,
+  `reports/milestones/M3.6.md`. Forecasts h-day forward realized vol (RandomWalk/HAR-RV/GJR-GARCH/LightGBM).
+  **First positive OOS result: realized volatility IS predictable** (every model beats random-walk-vol on QLIKE,
+  h=5 p≤1e-9, h=20 p≤0.033). Risk (2nd moment), not return alpha — consistent with the EMH conclusion.
+- **M6 (volatility regime classification) done** (2026-07-07, multi-agent audited): `notebooks/05_volatility_regime.py`,
+  `reports/milestones/M6.md`. Accuracy-framed **communication of M3.6** — "calm vs stormy next h days" — the honest
+  answer to the user's ">75%" ask. **Volatility regime is 71-84% predictable OOS at the calm/stormy extremes** vs
+  ~50% base rate (h=20 quintile 0.836). **But the audit's key lesson: the predictor is vol PERSISTENCE, not the
+  model** — a trivial sticky-vol rule scores 0.836 and LightGBM (0.782) does NOT beat it. A mis-scaled persistence
+  baseline (per-day σ vs √h-summed cutoff) originally faked 26pts of "model skill"; the Investment Researcher audit
+  caught it and scale-matching flipped the conclusion. h=5 quintile (0.74) is the val-corroborated cell; a
+  train-on-eval leak was self-caught pre-holdout. Predictable **risk regime** (still NOT tradeable price direction),
+  and here **not even model skill** — just vol clustering. M3.6's continuous forecast is the real risk deliverable.
 - **Outstanding**: nothing. Public hosting (Streamlit Community Cloud) out of scope until asked.
 
 ## How to run (local)
