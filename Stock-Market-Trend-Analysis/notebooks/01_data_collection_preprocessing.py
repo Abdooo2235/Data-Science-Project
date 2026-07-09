@@ -57,21 +57,21 @@
 # ## 0a. (Colab only) Bootstrap — get the project files onto the runtime
 #
 # A fresh Colab session is an **empty machine**. Before anything else, the project folder (including the
-# committed `data/raw/*.csv` snapshots) must exist at `/content/Stock-Market-Trend-Analysis`. Pick ONE:
+# committed `data/raw/*.csv` snapshots) must exist at `/content/Stock-Market-Trend-Analysis`. The repo has
+# the project in a **subfolder**, so clone into a temp dir and move that subfolder into place:
 #
-# - **Option A — clone from GitHub** (if you pushed the repo):
-#   ```python
-#   !git clone https://github.com/<you>/<repo>.git /content/Stock-Market-Trend-Analysis
-#   ```
-# - **Option B — mount Google Drive** (if the folder lives in your Drive):
-#   ```python
-#   from google.colab import drive; drive.mount('/content/drive')
-#   !cp -r "/content/drive/MyDrive/Stock-Market-Trend-Analysis" /content/
-#   ```
-# - **Option C — upload the 4 snapshot CSVs** manually into `/content/Stock-Market-Trend-Analysis/data/raw/`.
+# ```python
+# !rm -rf /content/dsp /content/Stock-Market-Trend-Analysis
+# !git clone https://github.com/Abdooo2235/Data-Science-Project.git /content/dsp
+# !mv /content/dsp/Stock-Market-Trend-Analysis /content/Stock-Market-Trend-Analysis
+# ```
 #
-# If none of these is done, the notebook will fall back to a **live** Yahoo fetch of the pinned window
-# (works only if Yahoo is reachable from Colab). The cell below is a no-op outside Colab.
+# (Alternative — mount Google Drive if the folder lives there:
+# `from google.colab import drive; drive.mount('/content/drive')` then
+# `!cp -r "/content/drive/MyDrive/Stock-Market-Trend-Analysis" /content/`.)
+#
+# If neither is done, the notebook falls back to a **live** Yahoo fetch of the pinned window (works only if
+# Yahoo is reachable from Colab). The cell below is a no-op outside Colab.
 
 # %%
 import sys
