@@ -675,4 +675,4 @@ assert all(audit.values()), "M2 self-audit failed!"
 print(f"\nAll {len(audit)} M2 self-audit checks passed. {len(present)} figures saved. Ready for M3.")
 
 # Restore the original read_parquet (clean up the logging wrapper).
-pd.read_parquet = _orig_read_parquet
+pd.read_parquet = _REAL_READ_PARQUET
