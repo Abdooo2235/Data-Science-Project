@@ -101,6 +101,13 @@ MODELS = ROOT / "models"
 FIG.mkdir(parents=True, exist_ok=True)
 MODELS.mkdir(parents=True, exist_ok=True)
 
+# M1 outputs (train_fe/val_fe/feature_roles/...) may be absent in a fresh/partial session. Regenerate them
+# once by running M1, which reads the committed data/raw/*.csv snapshots (cache-first, no network).
+if not (PROC / "feature_roles.json").exists():
+    _m1 = ROOT / "notebooks" / "01_data_collection_preprocessing.py"
+    print(f"feature_roles.json missing -> running M1 to regenerate it ({_m1.name})...")
+    subprocess.run([sys.executable, str(_m1)], check=True, cwd=str(ROOT))
+
 roles = json.loads((PROC / "feature_roles.json").read_text())
 MODEL_FEATURES = roles["model_features"]
 CANDIDATE_FEATURES = roles.get("candidate_features", [])  # M3.5 ablation pool (gated into X by section 1b)
